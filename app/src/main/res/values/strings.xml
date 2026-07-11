@@ -1,4 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">H1e Conversion</string>
+
+    <!-- Start Screen -->
+    <string name="connect_device_title">デバイスに接続</string>
+    <string name="connect_device_desc">Zoom H1 essential をUSB接続して\n録音データを読み込む</string>
+    <string name="import_file_title">ファイルをインポート</string>
+    <string name="import_file_desc">端末内の音声ファイルを選択して読み込む</string>
+
+    <!-- Device Files Screen -->
+    <string name="device_files_title">デバイスのファイル</string>
+    <string name="checking_device">デバイスを確認中…</string>
+    <string name="device_not_found">H1 essential が見つかりません</string>
+    <string name="device_not_found_desc">USBケーブルで接続してください。\n接続後、レコーダー側でストレージモードを選択してください。</string>
+    <string name="permission_denied">USB権限が許可されませんでした</string>
+    <string name="scanning_files">ファイルを読み込み中…</string>
+    <string name="no_recordings">録音ファイルが見つかりません</string>
+    <string name="copying_file">コピー中…</string>
+    <string name="retry">再試行</string>
+    <string name="reload">再読込</string>
+    <string name="manual_select">手動で選択</string>
+    <string name="error_occurred">エラーが発生しました</string>
+    <string name="back">戻る</string>
+
+    <!-- File Info Screen -->
+    <string name="file_info_title">ファイル情報</string>
+    <string name="loading_file_info">ファイル情報を読み込み中…</string>
+    <string name="next_button">次へ</string>
+    <string name="file_not_found">ファイルが見つかりません</string>
+    <string name="source_label">取得元</string>
+    <string name="source_usb">H1 essential (USB)</string>
+    <string name="source_local_import">端末からインポート</string>
+    <string name="file_size_label">ファイルサイズ</string>
+    <string name="save_location_label">保存場所</string>
+    <string name="recording_details_title">録音詳細</string>
+    <string name="recording_details_placeholder">録音日時や録音時間、フォーマット情報は次のステップで表示されます。</string>
 </resources>
