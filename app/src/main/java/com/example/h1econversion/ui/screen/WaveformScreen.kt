@@ -303,12 +303,15 @@ private fun WaveformContent(
                         activeTrackColor = MaterialTheme.colorScheme.primary,
                     ),
                 )
+                // ラベルをスライダーの実際の値位置に合わせて配置
+                // 0.0(0%) → 1.0(100%) → 5.0(500%) の比率 = 1:4
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(stringResource(R.string.volume_zero), style = MaterialTheme.typography.labelSmall)
+                    Spacer(modifier = Modifier.weight(1f))
                     Text(stringResource(R.string.volume_normal), style = MaterialTheme.typography.labelSmall)
+                    Spacer(modifier = Modifier.weight(4f))
                     Text(stringResource(R.string.volume_max), style = MaterialTheme.typography.labelSmall)
                 }
             }
