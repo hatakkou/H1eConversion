@@ -1,0 +1,157 @@
+# ─────────────────────────────────────────────────────
+# ビルド & リリース ワークフロー
+# arm64-v8a 向け APK をビルドし、GitHub Release または
+# Artifact として公開します。
+#
+# トリガー:
+#   - GitHub Release 公開時 (published)
+#   - 手動実行 (workflow_dispatch)
+#
+# リリース時:
+#   - コミット日時をリリース本文に記載
+#   - APK を Release に添付
+#
+# 手動実行時:
+#   - ビルド日時入り APK を Artifact としてアップロード
+# ─────────────────────────────────────────────────────
+
+name: Build and Release APK (arm64-v8a)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "APK のバージョン名（空欄の場合は自動）"
+        required: false
+        default: ""
+
+# GitHub Release 作成時は書き込み権限が必要
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. ソースコードのチェックアウト ──────────────────
+      - name: ソースコードをチェックアウト
+        uses: actions/checkout@v4
+
+      # ── 2. JDK 17 のセットアップ ──────────────────────────
+      - name: JDK 17 をセットアップ
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      # ── 3. Android SDK のセットアップ ─────────────────────
+      - name: Android SDK をセットアップ
+        uses: android-actions/setup-android@v3
+        with:
+          # compileSdk 34 に合わせる
+          api-level: 34
+          build-tools-version: "34.0.0"
+
+      # ── 4. リリース用キーストアの自動生成 ────────────────
+      #     有効期限 10000 日の自己署名キーストア
+      - name: リリース用キーストアを生成
+        run: |
+          keytool -genkey -v \
+            -keystore "${{ runner.temp }}/release.keystore" \
+            -alias release \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass android \
+            -keypass android \
+            -dname "CN=CI, OU=Dev, O=H1eConversion, L=Tokyo, ST=Tokyo, C=JP"
+
+      # ── 5. ビルド日時の取得 ──────────────────────────────
+      - name: ビルド日時を取得
+        id: datetime
+        run: |
+          echo "build_datetime=$(TZ='Asia/Tokyo' date +'%Y-%m-%dT%H-%M-%S')" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(TZ='Asia/Tokyo' date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      # ── 6. コミット日時の取得 ────────────────────────────
+      - name: コミット情報を取得
+        id: commit_info
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "commit_datetime=$(git log -1 --format='%ci' --date=iso)" >> "$GITHUB_OUTPUT"
+          echo "commit_message=$(git log -1 --format='%s')" >> "$GITHUB_OUTPUT"
+
+      # ── 7. Gradle ビルド（arm64-v8a release APK） ────────
+      - name: arm64-v8a Release APK をビルド
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease \
+            -PRELEASE_STORE_FILE="${{ runner.temp }}/release.keystore" \
+            -PRELEASE_STORE_PASSWORD=android \
+            -PRELEASE_KEY_ALIAS=release \
+            -PRELEASE_KEY_PASSWORD=android
+
+      # ── 8. APK のリネーム ────────────────────────────────
+      #     ファイル名にバージョン名 + ビルド日時を含める
+      - name: APK をリネーム
+        id: apk
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" -print -quit)
+          echo "APK found at: $APK_PATH"
+
+          # バージョン名の決定（手動入力 > 自動）
+          VERSION_NAME="${{ github.event.inputs.version_name }}"
+          if [ -z "$VERSION_NAME" ]; then
+            VERSION_NAME="1.0"
+          fi
+
+          APK_NAME="H1eConversion-${VERSION_NAME}-arm64-v8a-${{ steps.datetime.outputs.build_datetime }}.apk"
+          cp "$APK_PATH" "$APK_NAME"
+          echo "apk_name=$APK_NAME" >> "$GITHUB_OUTPUT"
+          echo "APK renamed to: $APK_NAME"
+
+      # ── 9. Release イベント時: APK を Release に添付 ─────
+      - name: APK を GitHub Release にアップロード
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "${{ steps.apk.outputs.apk_name }}"
+          body: |
+            ## ビルド情報
+
+            | 項目 | 値 |
+            |------|-----|
+            | コミット | `${{ steps.commit_info.outputs.sha_short }}` |
+            | コミット日時 | ${{ steps.commit_info.outputs.commit_datetime }} |
+            | コミットメッセージ | ${{ steps.commit_info.outputs.commit_message }} |
+            | ビルド日時 | ${{ steps.datetime.outputs.build_datetime }} |
+            | アーキテクチャ | arm64-v8a |
+
+            ---
+            *自動生成されたリリースです*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 10. 手動実行時: APK を Artifact として保存 ──────
+      - name: APK を Artifact としてアップロード
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: H1eConversion-arm64-v8a-${{ steps.datetime.outputs.build_datetime }}
+          path: "${{ steps.apk.outputs.apk_name }}"
+
+      # ── 11. ビルド結果サマリー ────────────────────────────
+      - name: ビルド結果をサマリー出力
+        run: |
+          echo "### ビルド結果 :white_check_mark:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 項目 | 値 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|-----|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| APK ファイル名 | \`${{ steps.apk.outputs.apk_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| コミット | \`${{ steps.commit_info.outputs.sha_short }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| コミット日時 | ${{ steps.commit_info.outputs.commit_datetime }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| ビルド日時 | ${{ steps.datetime.outputs.build_datetime }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| アーキテクチャ | arm64-v8a |" >> "$GITHUB_STEP_SUMMARY"

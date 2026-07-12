@@ -8,17 +8,38 @@ android {
     namespace = "com.example.h1econversion"
     compileSdk = 34
 
+    // ── CI/CD 用の署名設定 ─────────────────────────────────
+    //    ワークフローから -P プロパティでキーストア情報を受け取る
+    //    ローカルビルド時はプロパティ未設定のため無視される
+    signingConfigs {
+        create("release") {
+            storeFile = (project.findProperty("RELEASE_STORE_FILE") as? String)?.let { rootProject.file(it) }
+            storePassword = project.findProperty("RELEASE_STORE_PASSWORD") as? String ?: ""
+            keyAlias = project.findProperty("RELEASE_KEY_ALIAS") as? String ?: ""
+            keyPassword = project.findProperty("RELEASE_KEY_PASSWORD") as? String ?: ""
+        }
+    }
+
     defaultConfig {
         applicationId = "com.example.h1econversion"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+
+        // arm64-v8a (64bit ARM) のみに限定
+        ndk {
+            abiFilters.add("arm64-v8a")
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            // CI ビルド時のみ署名を適用（プロパティが設定されている場合）
+            if (project.findProperty("RELEASE_STORE_FILE") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
