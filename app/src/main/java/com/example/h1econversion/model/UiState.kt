@@ -26,3 +26,38 @@ sealed interface FileInfoUiState {
     data class Success(val selectedFile: SelectedFile) : FileInfoUiState
     data class Error(val message: String) : FileInfoUiState
 }
+
+sealed interface WaveformUiState {
+    data object Loading : WaveformUiState
+    data class Ready(
+        val wavInfo: WavInfoData,
+        val waveformData: WaveformUiData,
+        val playerState: PlaybackState,
+        val currentPositionMs: Long,
+        val volume: Float,
+    ) : WaveformUiState
+    data class Error(val message: String) : WaveformUiState
+}
+
+enum class PlaybackState {
+    Stopped, Playing, Paused, Finished
+}
+
+/**
+ * Subset of WavInfo exposed to the UI layer.
+ */
+data class WavInfoData(
+    val sampleRate: Int,
+    val numChannels: Int,
+    val bitsPerSample: Int,
+    val durationMs: Long,
+)
+
+/**
+ * Subset of WaveformData exposed to the UI layer.
+ * Uses List<Float> for Compose state compatibility.
+ */
+data class WaveformUiData(
+    val minValues: List<Float>,
+    val maxValues: List<Float>,
+)

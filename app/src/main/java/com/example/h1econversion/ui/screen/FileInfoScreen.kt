@@ -1,6 +1,7 @@
 package com.example.h1econversion.ui.screen
 
 import android.net.Uri
+import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -43,11 +44,13 @@ import com.example.h1econversion.viewmodel.FileInfoViewModel
 fun FileInfoScreen(
     localPath: String,
     onNavigateBack: () -> Unit,
+    onNavigateToWaveform: (String) -> Unit,
     viewModel: FileInfoViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
     LaunchedEffect(localPath) {
+        Log.d("FileInfoScreen", "LaunchedEffect: localPath=$localPath, decoded=${Uri.decode(localPath)}")
         viewModel.loadFileInfo(Uri.decode(localPath))
     }
 
@@ -90,6 +93,9 @@ fun FileInfoScreen(
                         fileSize = state.selectedFile.sizeBytes,
                         filePath = state.selectedFile.localPath,
                         source = state.selectedFile.source,
+                        onNavigateToWaveform = {
+                            onNavigateToWaveform(state.selectedFile.localPath)
+                        },
                     )
                 }
 
@@ -126,6 +132,7 @@ private fun FileInfoContent(
     fileSize: Long,
     filePath: String,
     source: FileSource,
+    onNavigateToWaveform: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -211,7 +218,7 @@ private fun FileInfoContent(
         Spacer(modifier = Modifier.weight(1f))
 
         Button(
-            onClick = { /* TODO: Step 2 — navigate to wave/playback screen */ },
+            onClick = onNavigateToWaveform,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(stringResource(R.string.next_button))

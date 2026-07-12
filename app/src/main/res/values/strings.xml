@@ -35,4 +35,39 @@
     <string name="save_location_label">保存場所</string>
     <string name="recording_details_title">録音詳細</string>
     <string name="recording_details_placeholder">録音日時や録音時間、フォーマット情報は次のステップで表示されます。</string>
+
+    <!-- Waveform / Playback Screen -->
+    <string name="waveform_title">波形・再生</string>
+    <string name="loading_waveform">波形データを読み込み中…</string>
+    <string name="wav_format_label">フォーマット</string>
+    <string name="wav_format_value">%1$d Hz / %2$d ch / %3$d bit float</string>
+    <string name="wav_duration_label">録音時間</string>
+    <string name="volume_label">音量</string>
+    <string name="volume_zero">0%</string>
+    <string name="volume_normal">100%</string>
+    <string name="volume_max">500%</string>
+    <string name="play">再生</string>
+    <string name="pause">一時停止</string>
+    <string name="stop">停止</string>
+    <string name="next_button_waveform">変換へ進む</string>
+
+    <!-- Conversion Screen -->
+    <string name="conversion_title">変換</string>
+    <string name="conversion_params_title">変換パラメータ</string>
+    <string name="conversion_input_file">入力ファイル</string>
+    <string name="conversion_input_format">入力フォーマット</string>
+    <string name="conversion_gain">ゲイン</string>
+    <string name="conversion_output_format">出力フォーマット</string>
+    <string name="conversion_note_title">32-bit float → AAC 変換について</string>
+    <string name="conversion_note_body">H1e の 32-bit float 録音データにゲインを適用し、192kbps AAC (.m4a) に変換します。ゲインは float ドメインで乗算されるため、量子化誤差なく増幅できます。変換には Android 標準の MediaCodec を使用します。</string>
+    <string name="conversion_start_button">変換を開始</string>
+    <string name="conversion_progress_title">変換中…</string>
+    <string name="conversion_progress_desc">%1$s をゲイン %2$d%% で変換しています。しばらくお待ちください。</string>
+    <string name="conversion_success_title">変換完了</string>
+    <string name="conversion_success_desc">%1$s をゲイン %2$d%% で変換しました。</string>
+    <string name="conversion_error_title">変換に失敗しました</string>
+    <string name="conversion_share_button">M4Aファイルを共有</string>
+    <string name="conversion_share_chooser_title">M4Aファイルを共有</string>
+    <string name="conversion_share_error">共有に失敗しました</string>
+    <string name="conversion_back_button">波形画面に戻る</string>
 </resources>

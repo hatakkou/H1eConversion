@@ -2,6 +2,7 @@ package com.example.h1econversion.viewmodel
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.h1econversion.audio.LocalFileRepository
@@ -25,6 +26,10 @@ sealed interface DeviceFilesNavigationEvent {
 }
 
 class DeviceFilesViewModel(application: Application) : AndroidViewModel(application) {
+
+    companion object {
+        private const val TAG = "DeviceFilesViewModel"
+    }
 
     private val usbRepo = UsbFileRepository(application)
     private val localRepo = LocalFileRepository(application)
@@ -95,18 +100,23 @@ class DeviceFilesViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun selectFile(file: RecordingFile) {
+        Log.d(TAG, "selectFile: file=${file.name}, uri=${file.uri}")
         viewModelScope.launch {
             _copyingFileName.value = file.name
+            Log.d(TAG, "selectFile: calling copyUriToLocal...")
             val result = localRepo.copyUriToLocal(file.uri, file.name, FileSource.USB_DEVICE)
             _copyingFileName.value = null
+            Log.d(TAG, "selectFile: copyUriToLocal returned, isSuccess=${result.isSuccess}")
 
             result.fold(
                 onSuccess = { selectedFile ->
+                    Log.d(TAG, "selectFile: SUCCESS, navigating to ${selectedFile.localPath}")
                     _navigationEvent.send(
                         DeviceFilesNavigationEvent.NavigateToFileInfo(selectedFile.localPath)
                     )
                 },
                 onFailure = { error ->
+                    Log.e(TAG, "selectFile: FAILURE", error)
                     _uiState.value = DeviceFilesUiState.Error(
                         error.message ?: "ファイルのコピーに失敗しました"
                     )
