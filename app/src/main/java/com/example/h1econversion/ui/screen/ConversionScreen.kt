@@ -176,26 +176,6 @@ private fun IdleContent(
 
     Spacer(modifier = Modifier.height(24.dp))
 
-    // 補足説明
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = stringResource(R.string.conversion_note_title),
-                style = MaterialTheme.typography.titleSmall,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = stringResource(R.string.conversion_note_body),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-
-    Spacer(modifier = Modifier.height(24.dp))
-
     // 変換開始ボタン
     Button(
         onClick = onStartConversion,

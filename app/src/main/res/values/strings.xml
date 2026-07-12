@@ -58,8 +58,6 @@
     <string name="conversion_input_format">入力フォーマット</string>
     <string name="conversion_gain">ゲイン</string>
     <string name="conversion_output_format">出力フォーマット</string>
-    <string name="conversion_note_title">32-bit float → AAC 変換について</string>
-    <string name="conversion_note_body">H1e の 32-bit float 録音データにゲインを適用し、192kbps AAC (.m4a) に変換します。ゲインは float ドメインで乗算されるため、量子化誤差なく増幅できます。変換には Android 標準の MediaCodec を使用します。</string>
     <string name="conversion_start_button">変換を開始</string>
     <string name="conversion_progress_title">変換中…</string>
     <string name="conversion_progress_desc">%1$s をゲイン %2$d%% で変換しています。しばらくお待ちください。</string>
