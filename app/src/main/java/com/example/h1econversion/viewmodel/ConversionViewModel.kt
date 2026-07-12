@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.h1econversion.audio.LocalFileRepository
 import com.example.h1econversion.audio.MediaCodecConverter
 import com.example.h1econversion.audio.MediaCodecConverter.Result
 import kotlinx.coroutines.Dispatchers
@@ -78,8 +79,10 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
         currentGain = gain
 
         val gainPercent = (gain * 100f).toInt()
+        // UUIDプレフィックスを除去した表示用ファイル名を取得
+        val displayName = LocalFileRepository.getDisplayName(inputPath)
         _uiState.value = ConversionUiState.Idle(
-            inputFileName = File(inputPath).name,
+            inputFileName = displayName,
             inputFormat = inputFormat,
             gainPercent = gainPercent,
             outputFormat = "AAC / ${MediaCodecConverter.AAC_BITRATE / 1000}kbps / M4A",
@@ -101,17 +104,19 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                 return
             }
         val outputDir = cacheDir.resolve("converted")
-        val baseName = inputFile.nameWithoutExtension
+        // UUIDプレフィックスを除去した表示用ファイル名を取得
+        val displayName = LocalFileRepository.getDisplayName(inputPath)
+        val baseName = displayName.substringBeforeLast(".")
         val gainPercent = (gain * 100f).toInt()
 
-        // 出力ファイル名: "元ファイル名_gainXXX.mp3"
+        // 出力ファイル名: "元ファイル名_gainXXX.m4a"
         val outputName = "${baseName}_gain${gainPercent}.m4a"
         val outputPath = File(outputDir, outputName).absolutePath
 
         Log.d(TAG, "Starting conversion: $inputPath -> $outputPath (gain=$gain)")
 
         _uiState.value = ConversionUiState.Converting(
-            inputFileName = inputFile.name,
+            inputFileName = displayName,
             gainPercent = gainPercent,
             progressLog = "変換を開始しています…",
         )
@@ -125,7 +130,7 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                     is Result.Success -> {
                         Log.d(TAG, "Conversion succeeded: ${result.outputFile.absolutePath}")
                         _uiState.value = ConversionUiState.Success(
-                            inputFileName = inputFile.name,
+                            inputFileName = displayName,
                             gainPercent = gainPercent,
                             outputFile = result.outputFile,
                         )
