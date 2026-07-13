@@ -260,7 +260,7 @@ private fun ConvertingContent(state: ConversionUiState.Converting) {
 
         // 下部: ログ表示エリア
         Text(
-            text = "変換ログ",
+            text = stringResource(R.string.conversion_log_title),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 4.dp),
@@ -313,7 +313,7 @@ private fun SuccessContent(
         val dialogListState = rememberLazyListState()
         AlertDialog(
             onDismissRequest = { showLogDialog = false },
-            title = { Text("変換ログ") },
+            title = { Text(stringResource(R.string.conversion_log_title)) },
             text = {
                 Box(
                     modifier = Modifier
@@ -326,7 +326,7 @@ private fun SuccessContent(
                 ) {
                     if (state.progressLogs.isEmpty()) {
                         Text(
-                            text = "ログがありません",
+                            text = stringResource(R.string.conversion_log_empty),
                             modifier = Modifier.padding(16.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -349,17 +349,19 @@ private fun SuccessContent(
             },
             confirmButton = {
                 TextButton(onClick = { showLogDialog = false }) {
-                    Text("閉じる")
+                    Text(stringResource(R.string.conversion_log_close))
                 }
             },
         )
     }
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
+        Spacer(modifier = Modifier.height(16.dp))
         Icon(
             imageVector = Icons.Default.CheckCircle,
             contentDescription = null,
@@ -412,7 +414,7 @@ private fun SuccessContent(
             onClick = { showLogDialog = true },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("ログを確認")
+            Text(stringResource(R.string.conversion_view_log_button))
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -424,6 +426,8 @@ private fun SuccessContent(
         ) {
             Text(stringResource(R.string.conversion_back_button))
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 

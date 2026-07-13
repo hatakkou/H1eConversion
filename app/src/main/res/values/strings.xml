@@ -68,4 +68,8 @@
     <string name="conversion_share_chooser_title">M4Aファイルを共有</string>
     <string name="conversion_share_error">共有に失敗しました</string>
     <string name="conversion_back_button">波形画面に戻る</string>
+    <string name="conversion_log_title">変換ログ</string>
+    <string name="conversion_log_empty">ログがありません</string>
+    <string name="conversion_log_close">閉じる</string>
+    <string name="conversion_view_log_button">ログを確認</string>
 </resources>
