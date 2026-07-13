@@ -51,8 +51,14 @@ object MediaCodecConverter {
      * @param inputPath 入力 WAV ファイルのパス
      * @param outputPath 出力 .m4a ファイルのパス
      * @param gain リニアゲイン倍率（1.0 = 0dB, 5.0 = +14dB）
+     * @param onProgress 進捗ログを受け取るコールバック（オプション）
      */
-    suspend fun convert(inputPath: String, outputPath: String, gain: Float): Result =
+    suspend fun convert(
+        inputPath: String,
+        outputPath: String,
+        gain: Float,
+        onProgress: ((String) -> Unit)? = null,
+    ): Result =
         withContext(Dispatchers.IO) {
             try {
                 val inputFile = java.io.File(inputPath)
@@ -67,10 +73,12 @@ object MediaCodecConverter {
                 outputFile.parentFile?.mkdirs()
 
                 val clampedGain = gain.coerceIn(0f, 100f)
+                onProgress?.invoke("AAC変換を開始します")
                 Log.d(TAG, "AAC変換開始: $inputPath -> $outputPath (gain=$clampedGain)")
 
-                encodeAac(inputPath, outputPath, wavInfo, clampedGain)
+                encodeAac(inputPath, outputPath, wavInfo, clampedGain, onProgress)
 
+                onProgress?.invoke("AAC変換が完了しました")
                 Log.d(TAG, "AAC変換完了: $outputPath")
                 Result.Success(outputFile)
             } catch (e: Exception) {
@@ -87,6 +95,7 @@ object MediaCodecConverter {
         outputPath: String,
         wavInfo: WavInfo,
         gain: Float,
+        onProgress: ((String) -> Unit)?,
     ) {
         val sampleRate = wavInfo.sampleRate
         val channels = wavInfo.numChannels.toInt()
@@ -97,6 +106,12 @@ object MediaCodecConverter {
             throw IllegalStateException("不正な WAV フォーマットです: channels=$channels, bits=$bitsPerSample")
         }
         val isFloat = wavInfo.audioFormat.toInt() == 3 && bytesPerSample == 4
+        val totalFrames = wavInfo.dataSize / bytesPerFrame
+
+        onProgress?.invoke("入力: ${wavInfo.sampleRate}Hz / ${channels}ch / ${bitsPerSample}bit" +
+                if (isFloat) " float" else " PCM")
+        onProgress?.invoke("総フレーム数: $totalFrames")
+        onProgress?.invoke("出力: AAC-LC / ${AAC_BITRATE / 1000}kbps / M4A")
 
         // AAC エンコーダー設定
         val format = MediaFormat.createAudioFormat(AAC_MIME, sampleRate, channels).apply {
@@ -111,6 +126,8 @@ object MediaCodecConverter {
         val codec = MediaCodec.createEncoderByType(AAC_MIME)
         codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         codec.start()
+
+        onProgress?.invoke("AACエンコーダーを起動しました")
 
         val muxer = MediaMuxer(
             outputPath,
@@ -136,6 +153,10 @@ object MediaCodecConverter {
 
         val bufferInfo = MediaCodec.BufferInfo()
 
+        // 進捗報告用: 前回報告時の処理済みフレーム数（10万フレームごとに報告）
+        var lastReportedFrames: Long = 0
+        val progressReportInterval = 100_000L
+
         try {
             while (!outputDone) {
                 // ---- 入力: WAV → gain → 16-bit PCM ----
@@ -157,6 +178,16 @@ object MediaCodecConverter {
                                 pendingPcmOffset = 0
                                 remainingBytes -= bytesRead
                                 frameIndex += bytesRead / bytesPerFrame
+
+                                // 進捗報告: Nフレームごと
+                                val processedFrames = frameIndex
+                                if (processedFrames - lastReportedFrames >= progressReportInterval) {
+                                    val pct = if (totalFrames > 0) (processedFrames * 100 / totalFrames).toInt() else 0
+                                    onProgress?.invoke(
+                                        "読み込み中: $processedFrames / $totalFrames フレーム ($pct%)"
+                                    )
+                                    lastReportedFrames = processedFrames
+                                }
                             }
                         }
 
@@ -183,6 +214,7 @@ object MediaCodecConverter {
                             )
                         } else {
                             // 全 PCM データ送信完了 → EOS シグナル
+                            onProgress?.invoke("全PCMデータを送信しました (EOS)")
                             val presentationTimeUs = framesSubmitted * 1_000_000L / sampleRate
                             codec.queueInputBuffer(
                                 inputBufIdx, 0, 0,
@@ -227,6 +259,7 @@ object MediaCodecConverter {
                             trackIndex = muxer.addTrack(codec.outputFormat)
                             muxer.start()
                             muxerStarted = true
+                            onProgress?.invoke("Muxerを開始、AAC出力を書き込み中...")
                         }
                     }
                 }

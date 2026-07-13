@@ -1,20 +1,30 @@
 package com.example.h1econversion.ui.screen
 
 import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -23,17 +33,21 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -87,12 +101,14 @@ fun ConversionScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
+        // 注: 外側のColumnにverticalScrollを付けない。
+        // Converting状態ではLazyColumnを使うため、verticalScrollとの競合を避ける。
+        // IdleContent側で必要に応じてスクロールを設定する。
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
+                .padding(16.dp),
         ) {
             when (val state = uiState) {
                 is ConversionUiState.Idle -> {
@@ -135,8 +151,13 @@ private fun IdleContent(
     state: ConversionUiState.Idle,
     onStartConversion: () -> Unit,
 ) {
-    // パラメータカード
-    Card(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        // パラメータカード
+        Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -183,35 +204,92 @@ private fun IdleContent(
     ) {
         Text(stringResource(R.string.conversion_start_button))
     }
+    } // end outer Column
 }
 
 /**
  * 変換実行中の画面。
+ * 進捗インジケーターとリアルタイムログ表示を備える。
  */
 @Composable
 private fun ConvertingContent(state: ConversionUiState.Converting) {
+    val listState = rememberLazyListState()
+
+    // 新しいログが追加されたら自動スクロール（ユーザーが最下部にいる場合のみ）
+    LaunchedEffect(state.progressLogs.size) {
+        if (state.progressLogs.isNotEmpty()) {
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleItem = layoutInfo.visibleItemsInfo.lastOrNull()
+            // 最後のアイテムが画面内に見えている場合のみ自動スクロール
+            val isAtBottom = lastVisibleItem != null &&
+                lastVisibleItem.index == layoutInfo.totalItemsCount - 1
+            if (isAtBottom) {
+                listState.animateScrollToItem(state.progressLogs.size - 1)
+            }
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(64.dp))
-        Spacer(modifier = Modifier.height(24.dp))
+        // 上部: 進捗インジケーター + ファイル情報
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(40.dp))
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = stringResource(R.string.conversion_progress_title),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = stringResource(
+                        R.string.conversion_progress_desc,
+                        state.inputFileName,
+                        state.gainPercent,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        // 下部: ログ表示エリア
         Text(
-            text = stringResource(R.string.conversion_progress_title),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = stringResource(
-                R.string.conversion_progress_desc,
-                state.inputFileName,
-                state.gainPercent,
-            ),
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
+            text = "変換ログ",
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 4.dp),
         )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(8.dp),
+                ),
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+            ) {
+                items(state.progressLogs) { log ->
+                    Text(
+                        text = log,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 1.dp),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -226,8 +304,57 @@ private fun SuccessContent(
     scope: kotlinx.coroutines.CoroutineScope,
     onNavigateBack: () -> Unit,
 ) {
+    var showLogDialog by remember { mutableStateOf(false) }
     val chooserTitle = stringResource(R.string.conversion_share_chooser_title)
     val shareErrorMsg = stringResource(R.string.conversion_share_error)
+
+    // ログ確認ダイアログ
+    if (showLogDialog) {
+        val dialogListState = rememberLazyListState()
+        AlertDialog(
+            onDismissRequest = { showLogDialog = false },
+            title = { Text("変換ログ") },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(8.dp),
+                        ),
+                ) {
+                    if (state.progressLogs.isEmpty()) {
+                        Text(
+                            text = "ログがありません",
+                            modifier = Modifier.padding(16.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        LazyColumn(
+                            state = dialogListState,
+                            modifier = Modifier.padding(8.dp),
+                        ) {
+                            items(state.progressLogs) { log ->
+                                Text(
+                                    text = log,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 1.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLogDialog = false }) {
+                    Text("閉じる")
+                }
+            },
+        )
+    }
+
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -276,6 +403,16 @@ private fun SuccessContent(
             )
             Spacer(modifier = Modifier.padding(4.dp))
             Text(stringResource(R.string.conversion_share_button))
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ログ確認ボタン
+        OutlinedButton(
+            onClick = { showLogDialog = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("ログを確認")
         }
 
         Spacer(modifier = Modifier.height(12.dp))

@@ -31,7 +31,7 @@ sealed interface ConversionUiState {
     data class Converting(
         val inputFileName: String,
         val gainPercent: Int,
-        val progressLog: String,
+        val progressLogs: List<String>,
     ) : ConversionUiState
 
     /** 変換成功 */
@@ -39,6 +39,7 @@ sealed interface ConversionUiState {
         val inputFileName: String,
         val gainPercent: Int,
         val outputFile: File,
+        val progressLogs: List<String>,
     ) : ConversionUiState
 
     /** 変換失敗 */
@@ -65,6 +66,9 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
     private var currentInputPath: String = ""
     private var currentInputFormat: String = ""
     private var currentGain: Float = 1.0f
+
+    /** 変換ログを保持（変換後に確認できるようフィールド化） */
+    private val logBuffer = mutableListOf<String>()
 
     /**
      * 変換パラメータを設定し、Idle 状態を表示します。
@@ -115,16 +119,27 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
 
         Log.d(TAG, "Starting conversion: $inputPath -> $outputPath (gain=$gain)")
 
+        // 初期ログメッセージ
+        logBuffer.clear()
+        logBuffer.add("変換を開始します...")
+
         _uiState.value = ConversionUiState.Converting(
             inputFileName = displayName,
             gainPercent = gainPercent,
-            progressLog = "変換を開始しています…",
+            progressLogs = logBuffer.toList(),
         )
 
         viewModelScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
-                    MediaCodecConverter.convert(inputPath, outputPath, gain)
+                    MediaCodecConverter.convert(inputPath, outputPath, gain) { logMessage ->
+                        // MutableStateFlowはスレッドセーフ。IOスレッドから直接更新
+                        logBuffer.add(logMessage)
+                        val s = _uiState.value
+                        if (s is ConversionUiState.Converting) {
+                            _uiState.value = s.copy(progressLogs = logBuffer.toList())
+                        }
+                    }
                 }
                 when (result) {
                     is Result.Success -> {
@@ -133,6 +148,7 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                             inputFileName = displayName,
                             gainPercent = gainPercent,
                             outputFile = result.outputFile,
+                            progressLogs = logBuffer.toList(),
                         )
                     }
                     is Result.Error -> {
