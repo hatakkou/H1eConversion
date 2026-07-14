@@ -1,7 +1,6 @@
 package com.example.h1econversion.ui.screen
 
 import android.net.Uri
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -41,7 +40,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,9 +55,7 @@ fun DeviceFilesScreen(
     onNavigateBack: () -> Unit,
     onFileSelected: (localPath: String) -> Unit,
     onLaunchManualPicker: () -> Unit = {},
-    viewModel: DeviceFilesViewModel = viewModel(
-        viewModelStoreOwner = LocalContext.current as ComponentActivity
-    ),
+    viewModel: DeviceFilesViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val copyingFileName by viewModel.copyingFileName.collectAsState()

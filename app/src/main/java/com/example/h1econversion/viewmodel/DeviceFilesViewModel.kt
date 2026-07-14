@@ -12,6 +12,7 @@ import com.example.h1econversion.audio.UsbFileRepository
 import com.example.h1econversion.model.DeviceFilesUiState
 import com.example.h1econversion.model.FileSource
 import com.example.h1econversion.model.RecordingFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -101,6 +102,9 @@ class DeviceFilesViewModel(application: Application) : AndroidViewModel(applicat
                 // Step 3: Find H1e storage volume → try to access → load files
                 _uiState.value = DeviceFilesUiState.ScanningFiles
                 scanFilesFromVolume()
+            } catch (e: CancellationException) {
+                // スキャンキャンセルは正常動作。再スローしてエラー状態に遷移させない。
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "checkDeviceAndLoadFiles: unexpected error", e)
                 _uiState.value = DeviceFilesUiState.Error(
@@ -171,6 +175,9 @@ class DeviceFilesViewModel(application: Application) : AndroidViewModel(applicat
                 val files = usbRepo.listRecordingFiles(docFile)
                 foundFiles = files
                 _uiState.value = DeviceFilesUiState.FilesLoaded(files)
+            } catch (e: CancellationException) {
+                // スキャンキャンセルは正常動作。再スローしてエラー状態に遷移させない。
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "onTreeUriGranted: failed", e)
                 _uiState.value = DeviceFilesUiState.Error(
@@ -189,8 +196,10 @@ class DeviceFilesViewModel(application: Application) : AndroidViewModel(applicat
             checkDeviceAndLoadFiles()
             return
         }
-        val initialUri = usbRepo.createInitialTreeUri(volume)
-        _openDocumentTreeTrigger.trySend(initialUri)
+        viewModelScope.launch {
+            val initialUri = usbRepo.createInitialTreeUri(volume)
+            _openDocumentTreeTrigger.send(initialUri)
+        }
     }
 
     fun selectFile(file: RecordingFile) {

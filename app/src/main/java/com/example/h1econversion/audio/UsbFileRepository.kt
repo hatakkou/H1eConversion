@@ -120,6 +120,10 @@ class UsbFileRepository(private val context: Context) {
      * 指定された StorageVolume に対応する SAF ツリー URI を構築して
      * [DocumentFile] を取得します。
      *
+     * 最初に [getPersistedTreeUriForVolume] でユーザーが以前許可した
+     * ツリーURI（RECORD 等のサブツリーを含む）を探し、見つかればそれを再利用します。
+     * 永続的権限がない場合のみ [buildTreeUriForVolume] でルートURIを構築します。
+     *
      * Android 13+ では SAF 権限が必須のため、権限がない場合は SecurityException が
      * 発生します。その場合は null を返します（呼び出し側で ACTION_OPEN_DOCUMENT_TREE を
      * 起動して権限を取得してください）。
@@ -130,8 +134,14 @@ class UsbFileRepository(private val context: Context) {
     suspend fun getDocumentFileForVolume(volume: StorageVolume): DocumentFile? =
         withContext(Dispatchers.IO) {
             try {
-                val treeUri = buildTreeUriForVolume(volume)
-                    ?: return@withContext null
+                // 1) 既存の永続的URI権限を確認（サブツリー選択を再利用）
+                val persistedUri = getPersistedTreeUriForVolume(volume)
+                val treeUri = if (persistedUri != null) {
+                    Log.d(TAG, "getDocumentFileForVolume: reusing persisted URI $persistedUri")
+                    persistedUri
+                } else {
+                    buildTreeUriForVolume(volume) ?: return@withContext null
+                }
                 Log.d(TAG, "getDocumentFileForVolume: treeUri=$treeUri")
 
                 val docFile = DocumentFile.fromTreeUri(context, treeUri)
@@ -162,55 +172,86 @@ class UsbFileRepository(private val context: Context) {
         }
 
     /**
+     * 指定ボリュームの UUID に一致する永続的ツリー URI 権限を [persistedUriPermissions]
+     * から検索します。ユーザーが以前に許可したサブツリー（RECORD 等）があれば再利用します。
+     *
+     * @param volume 検索対象の StorageVolume
+     * @return 一致する永続的ツリー URI。見つからない場合は null
+     */
+    private fun getPersistedTreeUriForVolume(volume: StorageVolume): android.net.Uri? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val uuid = volume.uuid ?: return null
+        val permissions = context.contentResolver.persistedUriPermissions
+        for (perm in permissions) {
+            if (!perm.isReadPermission) continue
+            val uri = perm.uri
+            if (uri.scheme == "content" &&
+                uri.authority == "com.android.externalstorage.documents"
+            ) {
+                val docId = DocumentsContract.getTreeDocumentId(uri) ?: continue
+                if (docId.startsWith(uuid)) {
+                    return uri
+                }
+            }
+        }
+        return null
+    }
+
+    /**
      * H1e ストレージへのアクセス権限を取得するための SAF ツリーピッカーの
      * 初期 URI を取得します。
      *
      * [buildTreeUriForVolume] で tree URI を構築します。
+     * ContentProvider クエリを含むため [Dispatchers.IO] 上で実行します。
      *
      * @param volume H1e の StorageVolume
      * @return SAF ツリーピッカーの初期 URI。作成できない場合は null（null でもピッカー起動可）
      */
-    fun createInitialTreeUri(volume: StorageVolume): android.net.Uri? {
-        return try {
-            val uri = buildTreeUriForVolume(volume)
-            Log.d(TAG, "createInitialTreeUri: uri=$uri")
-            uri
-        } catch (e: Exception) {
-            Log.w(TAG, "createInitialTreeUri: failed", e)
-            null
+    suspend fun createInitialTreeUri(volume: StorageVolume): android.net.Uri? =
+        withContext(Dispatchers.IO) {
+            try {
+                val uri = buildTreeUriForVolume(volume)
+                Log.d(TAG, "createInitialTreeUri: uri=$uri")
+                uri
+            } catch (e: Exception) {
+                Log.w(TAG, "createInitialTreeUri: failed", e)
+                null
+            }
         }
-    }
 
     /**
      * SAF ツリーピッカーから返却された URI を処理し、永続的権限を保存した上で
      * [DocumentFile] を返します。
      *
+     * DocumentFile.exists() 等の I/O を含むため [Dispatchers.IO] 上で実行します。
+     *
      * @param treeUri SAF ツリーピッカーから返却された tree URI
      * @return アクセス可能な DocumentFile。失敗時は null
      */
-    fun processTreeUriResult(treeUri: android.net.Uri): DocumentFile? {
-        try {
-            // 永続的読み取り権限を取得
-            val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            context.contentResolver.takePersistableUriPermission(treeUri, takeFlags)
-            Log.d(TAG, "processTreeUriResult: persistable permission granted for $treeUri")
+    suspend fun processTreeUriResult(treeUri: android.net.Uri): DocumentFile? =
+        withContext(Dispatchers.IO) {
+            try {
+                // 永続的読み取り権限を取得
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(treeUri, takeFlags)
+                Log.d(TAG, "processTreeUriResult: persistable permission granted for $treeUri")
 
-            val docFile = DocumentFile.fromTreeUri(context, treeUri)
-            if (docFile != null && docFile.exists()) {
-                Log.d(TAG, "processTreeUriResult: SUCCESS, name=${docFile.name} uri=${docFile.uri}")
-                return docFile
-            } else {
-                Log.w(TAG, "processTreeUriResult: DocumentFile is null or does not exist")
-                return null
+                val docFile = DocumentFile.fromTreeUri(context, treeUri)
+                if (docFile != null && docFile.exists()) {
+                    Log.d(TAG, "processTreeUriResult: SUCCESS, name=${docFile.name} uri=${docFile.uri}")
+                    return@withContext docFile
+                } else {
+                    Log.w(TAG, "processTreeUriResult: DocumentFile is null or does not exist")
+                    return@withContext null
+                }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "processTreeUriResult: SecurityException", e)
+                return@withContext null
+            } catch (e: Exception) {
+                Log.w(TAG, "processTreeUriResult: failed", e)
+                return@withContext null
             }
-        } catch (e: SecurityException) {
-            Log.w(TAG, "processTreeUriResult: SecurityException", e)
-            return null
-        } catch (e: Exception) {
-            Log.w(TAG, "processTreeUriResult: failed", e)
-            return null
         }
-    }
 
     /**
      * StorageVolume の情報から SAF ツリー URI を構築します。
@@ -258,7 +299,12 @@ class UsbFileRepository(private val context: Context) {
         try {
             val rootsUri = DocumentsContract.buildRootsUri("com.android.externalstorage.documents")
             context.contentResolver.query(rootsUri, null, null, null, null)?.use { cursor ->
-                val rootIdIdx = cursor.getColumnIndex(DocumentsContract.Root.COLUMN_ROOT_ID)
+                // COLUMN_DOCUMENT_ID を優先使用（ツリーURI構築に適切なドキュメントID形式）
+                var rootIdIdx = cursor.getColumnIndex(DocumentsContract.Root.COLUMN_DOCUMENT_ID)
+                if (rootIdIdx < 0) {
+                    // フォールバック: COLUMN_ROOT_ID（古いプロバイダー用）
+                    rootIdIdx = cursor.getColumnIndex(DocumentsContract.Root.COLUMN_ROOT_ID)
+                }
                 val flagsIdx = cursor.getColumnIndex(DocumentsContract.Root.COLUMN_FLAGS)
                 val titleIdx = cursor.getColumnIndex(DocumentsContract.Root.COLUMN_TITLE)
                 val summaryIdx = cursor.getColumnIndex(DocumentsContract.Root.COLUMN_SUMMARY)
@@ -311,47 +357,46 @@ class UsbFileRepository(private val context: Context) {
     suspend fun listRecordingFiles(rootDir: DocumentFile): List<RecordingFile> = withContext(Dispatchers.IO) {
         val files = mutableListOf<RecordingFile>()
 
-        try {
-            // H1 essential typically stores recordings in a "RECORD" folder
-            val recordDirs = listOf(
-                findSubDirectory(rootDir, "RECORD"),
-                rootDir,
-            ).filterNotNull()
+        // H1 essential typically stores recordings in a "RECORD" folder
+        val recordDirs = listOf(
+            findSubDirectory(rootDir, "RECORD"),
+            rootDir,
+        ).filterNotNull()
 
-            val seenNames = mutableSetOf<String>()
-            for (dir in recordDirs) {
-                try {
-                    val dirFiles = dir.listFiles()
-                    for (file in dirFiles) {
-                        try {
-                            if (file.isFile && file.name != null && file.name!!.lowercase().endsWith(".wav")) {
-                                if (seenNames.add(file.name!!)) {
-                                    files.add(
-                                        RecordingFile(
-                                            name = file.name!!,
-                                            uri = file.uri,
-                                            sizeBytes = file.length(),
-                                            lastModified = file.lastModified(),
-                                        )
+        var anyDirListed = false
+        val seenNames = mutableSetOf<String>()
+        for (dir in recordDirs) {
+            try {
+                val dirFiles = dir.listFiles()
+                anyDirListed = true  // listFiles() が成功 = このディレクトリは読み取り可能
+                for (file in dirFiles) {
+                    try {
+                        if (file.isFile && file.name != null && file.name!!.lowercase().endsWith(".wav")) {
+                            if (seenNames.add(file.name!!)) {
+                                files.add(
+                                    RecordingFile(
+                                        name = file.name!!,
+                                        uri = file.uri,
+                                        sizeBytes = file.length(),
+                                        lastModified = file.lastModified(),
                                     )
-                                }
+                                )
                             }
-                        } catch (e: Exception) {
-                            Log.w(TAG,
-                                "Failed to process file: ${file.name}", e)
                         }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to process file: ${file.name}", e)
                     }
-                } catch (e: SecurityException) {
-                    Log.w(TAG,
-                        "Cannot list files in directory (no SAF permission): ${dir.name}", e)
-                } catch (e: Exception) {
-                    Log.w(TAG,
-                        "Failed to list files in directory: ${dir.name}", e)
                 }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Cannot list files in directory (no SAF permission): ${dir.name}", e)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to list files in directory: ${dir.name}", e)
             }
-        } catch (e: Exception) {
-            Log.w(TAG,
-                "listRecordingFiles failed", e)
+        }
+
+        // すべてのディレクトリの一覧取得に失敗した場合はエラーを伝播
+        if (!anyDirListed && recordDirs.isNotEmpty()) {
+            throw java.io.IOException("Failed to list any recording directories on device")
         }
 
         return@withContext files.sortedByDescending { it.lastModified }
