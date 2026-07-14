@@ -1,5 +1,9 @@
 package com.example.h1econversion.ui.screen
 
+import android.net.Uri
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +41,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -52,10 +57,21 @@ fun DeviceFilesScreen(
     onNavigateBack: () -> Unit,
     onFileSelected: (localPath: String) -> Unit,
     onLaunchManualPicker: () -> Unit = {},
-    viewModel: DeviceFilesViewModel = viewModel(),
+    viewModel: DeviceFilesViewModel = viewModel(
+        viewModelStoreOwner = LocalContext.current as ComponentActivity
+    ),
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val copyingFileName by viewModel.copyingFileName.collectAsState()
+
+    // SAF ツリーピッカー（ACTION_OPEN_DOCUMENT_TREE）
+    val treePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.onTreeUriGranted(uri)
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.checkDeviceAndLoadFiles()
@@ -65,6 +81,13 @@ fun DeviceFilesScreen(
     LaunchedEffect(Unit) {
         viewModel.manualSelectTrigger.collect {
             onLaunchManualPicker()
+        }
+    }
+
+    // SAF ツリーピッカー起動トリガーの監視
+    LaunchedEffect(Unit) {
+        viewModel.openDocumentTreeTrigger.collect { initialUri ->
+            treePickerLauncher.launch(initialUri)
         }
     }
 
@@ -204,6 +227,32 @@ fun DeviceFilesScreen(
                     }
                 }
 
+                is DeviceFilesUiState.NeedSafPermission -> {
+                    CenteredMessage(
+                        icon = {
+                            Icon(
+                                Icons.Default.Usb,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        message = "ストレージへのアクセス権限が必要です",
+                        description = state.message,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Button(onClick = { viewModel.requestSafPermission() }) {
+                                Text("権限を付与する")
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            androidx.compose.material3.TextButton(
+                                onClick = { viewModel.requestManualSelect() }
+                            ) {
+                                Text("手動でファイルを選択する")
+                            }
+                        }
+                    }
+                }
                 is DeviceFilesUiState.Idle -> {
                     // Initial state; waiting for LaunchedEffect
                 }

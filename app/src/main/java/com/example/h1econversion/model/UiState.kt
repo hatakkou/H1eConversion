@@ -11,6 +11,7 @@ sealed interface DeviceFilesUiState {
     data object PermissionDenied : DeviceFilesUiState
     data object ScanningFiles : DeviceFilesUiState
     data class FilesLoaded(val files: List<RecordingFile>) : DeviceFilesUiState
+    data class NeedSafPermission(val message: String) : DeviceFilesUiState
     data class Error(val message: String) : DeviceFilesUiState
 }
 
