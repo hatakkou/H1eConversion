@@ -110,14 +110,15 @@ class AudioPlayer {
      */
     suspend fun load(filePath: String, wavInfo: WavInfo) {
         mutex.withLock {
+            // cancel 前に状態を Idle に変更し、resume() の finally ブロックで
+            // Finished が誤って発行されるのを防ぐ
+            _state.value = PlayerState.Idle
             playbackJob?.cancel()
             playbackJob?.join()
             playbackJob = null
             releaseInternal()
             _wavInfo = wavInfo
             _currentFrame.value = 0L
-            _state.value = PlayerState.Idle
-            // ファイルハンドルは play() のたびに開くので、ここでは保持しない
         }
     }
 
@@ -403,6 +404,9 @@ class AudioPlayer {
      */
     suspend fun stop() {
         mutex.withLock {
+            // cancel 前に状態を Idle に変更し、resume() の finally ブロックで
+            // Finished が誤って発行されるのを防ぐ
+            _state.value = PlayerState.Idle
             playbackJob?.cancel()
             playbackJob?.join()
             playbackJob = null
@@ -410,7 +414,6 @@ class AudioPlayer {
                 try { pause() } catch (_: Exception) {}
                 try { flush() } catch (_: Exception) {}
             }
-            _state.value = PlayerState.Idle
             _currentFrame.value = 0L
             currentFile?.seek(_wavInfo?.dataOffset ?: 0L)
         }
@@ -435,6 +438,10 @@ class AudioPlayer {
 
             val wasPlaying = _state.value is PlayerState.Playing
             if (_state.value is PlayerState.Playing || _state.value is PlayerState.Paused) {
+                // cancel 前に状態を Paused に変更し、resume() の finally ブロックで
+                // Finished が誤って発行されるのを防ぐ
+                _state.value = PlayerState.Paused
+
                 // 再生ループの完了を待ってから共有リソースを操作
                 playbackJob?.cancel()
                 playbackJob?.join()
@@ -447,12 +454,9 @@ class AudioPlayer {
 
                 if (wasPlaying) {
                     // 再生を新しい位置から再開
-                    _state.value = PlayerState.Paused
                     playbackJob = playerScope.launch(Dispatchers.IO) {
                         resume()
                     }
-                } else {
-                    _state.value = PlayerState.Paused
                 }
             } else {
                 currentFile?.seek(byteOffset)
@@ -466,12 +470,14 @@ class AudioPlayer {
      */
     suspend fun release() {
         mutex.withLock {
+            // cancel 前に状態を Idle に変更し、resume() の finally ブロックで
+            // Finished が誤って発行されるのを防ぐ
+            _state.value = PlayerState.Idle
             playbackJob?.cancel()
             playbackJob?.join()
             playbackJob = null
             releaseInternal()
             _wavInfo = null
-            _state.value = PlayerState.Idle
             _currentFrame.value = 0L
             // CoroutineScope を再生成し、次回の play() に備える
             playerScope.cancel()

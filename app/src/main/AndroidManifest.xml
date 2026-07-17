@@ -5,6 +5,11 @@
         android:name="android.hardware.usb.host"
         android:required="false" />
 
+    <!-- Downloads 保存用（Android 9 以前のみ必要、Q以降は MediaStore で不要） -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <application
         android:name=".H1eConversionApp"
         android:allowBackup="true"

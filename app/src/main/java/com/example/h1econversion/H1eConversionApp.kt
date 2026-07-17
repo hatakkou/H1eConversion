@@ -25,6 +25,9 @@ class H1eConversionApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // MultiFileStateHolder の永続化ストアを初期化
+        com.example.h1econversion.model.MultiFileStateHolder.init(this)
+
         // プロセス全体で一度だけハンドラを設定
         if (!handlerInstalled) {
             synchronized(this) {

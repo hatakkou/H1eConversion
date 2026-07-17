@@ -72,4 +72,21 @@
     <string name="conversion_log_empty">ログがありません</string>
     <string name="conversion_log_close">閉じる</string>
     <string name="conversion_view_log_button">ログを確認</string>
+
+    <!-- Multi-file Gain Screen -->
+    <string name="multi_gain_title">ゲイン調整</string>
+    <string name="multi_gain_loading">ファイル情報を読み込み中…</string>
+    <string name="multi_gain_batch_label">一括ゲイン設定</string>
+    <string name="multi_gain_convert_button">選択したファイルを変換 (%1$d個)</string>
+    <string name="volume_label_short">VOL</string>
+
+    <!-- Batch Conversion Screen -->
+    <string name="batch_conversion_title">一括変換</string>
+    <string name="batch_conversion_progress_title">一括変換中…</string>
+    <string name="batch_conversion_progress_desc">%1$d ファイル中 %2$d 完了</string>
+    <string name="batch_conversion_success_title">一括変換完了</string>
+    <string name="batch_conversion_success_desc">%1$d ファイルの変換が完了しました。</string>
+    <string name="batch_conversion_success_detail">成功: %1$d / 失敗: %2$d</string>
+    <string name="batch_save_button">%1$dファイルをDownloadsに保存</string>
+    <string name="batch_conversion_back_button">一括変換画面に戻る</string>
 </resources>

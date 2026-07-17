@@ -10,7 +10,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,43 +46,56 @@ class MainActivity : ComponentActivity() {
                 // 手動選択モード：true の場合、ピッカー結果を DeviceFilesViewModel に転送
                 var isManualDeviceSelect by remember { mutableStateOf(false) }
 
-                // File picker for "ファイルをインポート" / 手動選択
+                // File picker for "ファイルをインポート" (複数選択) / 手動選択 (単一選択)
                 val filePickerLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.OpenDocument(),
-                ) { uri: Uri? ->
-                    if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: callback invoked, uri=$uri, isManualDeviceSelect=$isManualDeviceSelect")
+                    contract = ActivityResultContracts.OpenMultipleDocuments(),
+                ) { uris: List<Uri> ->
+                    if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: callback invoked, uris=$uris, count=${uris.size}, isManualDeviceSelect=$isManualDeviceSelect")
                     try {
-                        if (uri != null) {
-                            // 永続的読み取り権限を取得（再起動後もアクセス可能にする）
-                            try {
-                                val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                contentResolver.takePersistableUriPermission(uri, takeFlags)
-                                if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: persistable uri permission granted for $uri")
-                            } catch (e: SecurityException) {
-                                Log.w(TAG, "filePickerLauncher: could not take persistable permission (non-fatal)", e)
+                        if (uris.isNotEmpty()) {
+                            // 永続的読み取り権限を取得
+                            for (uri in uris) {
+                                try {
+                                    val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                    contentResolver.takePersistableUriPermission(uri, takeFlags)
+                                } catch (e: SecurityException) {
+                                    Log.w(TAG, "filePickerLauncher: could not take persistable permission for $uri", e)
+                                }
                             }
 
                             lifecycleScope.launch {
                                 try {
-                                    if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: resolveFileName start, uri=$uri")
-                                    val fileName = resolveFileName(uri)
-                                    if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: resolveFileName done, fileName=$fileName")
-
-                                    if (isManualDeviceSelect) {
-                                        if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: routing to DeviceFilesViewModel.onManualFilePicked")
-                                        isManualDeviceSelect = false
-                                        deviceFilesViewModel.onManualFilePicked(uri, fileName)
-                                    } else {
-                                        if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: routing to StartViewModel.onFilePicked")
-                                        startViewModel.onFilePicked(uri, fileName)
+                                    when {
+                                        isManualDeviceSelect && uris.size == 1 -> {
+                                            // 手動選択モード（単一ファイル）
+                                            if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: routing single to DeviceFilesViewModel")
+                                            isManualDeviceSelect = false
+                                            val fileName = resolveFileName(uris.first())
+                                            deviceFilesViewModel.onManualFilePicked(uris.first(), fileName)
+                                        }
+                                        isManualDeviceSelect -> {
+                                            // 手動選択で複数は想定外だが、最初の1件だけ処理
+                                            if (BuildConfig.DEBUG) Log.w(TAG, "filePickerLauncher: manual select with multiple files, using first only")
+                                            isManualDeviceSelect = false
+                                            val fileName = resolveFileName(uris.first())
+                                            deviceFilesViewModel.onManualFilePicked(uris.first(), fileName)
+                                        }
+                                        else -> {
+                                            // 通常のインポート（複数ファイル）
+                                            if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: routing ${uris.size} files to StartViewModel.onMultipleFilesPicked")
+                                            val files = uris.map { uri ->
+                                                val fileName = resolveFileName(uri)
+                                                uri to fileName
+                                            }
+                                            startViewModel.onMultipleFilesPicked(files)
+                                        }
                                     }
-                                    if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: onFilePicked/onManualFilePicked returned")
                                 } catch (e: Exception) {
                                     Log.e(TAG, "filePickerLauncher: ERROR in picker callback coroutine", e)
                                 }
                             }
                         } else {
-                            if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: uri is null (user cancelled)")
+                            if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: uris is empty (user cancelled)")
                             isManualDeviceSelect = false
                         }
                     } catch (e: Exception) {
@@ -91,8 +103,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Observe navigation events from StartViewModel
-                val importState by startViewModel.importState.collectAsState()
+                // ナビゲーションイベントの監視
                 LaunchedEffect(Unit) {
                     if (BuildConfig.DEBUG) Log.d(TAG, "MainActivity: observing startViewModel.navigationEvent")
                     startViewModel.navigationEvent.collect { event ->
@@ -106,6 +117,24 @@ class MainActivity : ComponentActivity() {
                                     if (BuildConfig.DEBUG) Log.d(TAG, "MainActivity: navigation succeeded")
                                 } catch (e: Exception) {
                                     Log.e(TAG, "MainActivity: navigation failed", e)
+                                }
+                            }
+                            is com.example.h1econversion.viewmodel.StartNavigationEvent.NavigateToMultiFileGain -> {
+                                val route = com.example.h1econversion.ui.navigation.Routes.multiGain(event.localPaths)
+                                if (BuildConfig.DEBUG) Log.d(TAG, "MainActivity: navigating to multi_gain with ${event.localPaths.size} files")
+                                // 部分失敗があればトースト表示
+                                if (event.failedCount > 0) {
+                                    android.widget.Toast.makeText(
+                                        this@MainActivity,
+                                        "${event.localPaths.size}ファイル成功 / ${event.failedCount}ファイル失敗",
+                                        android.widget.Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                                try {
+                                    navController.navigate(route)
+                                    if (BuildConfig.DEBUG) Log.d(TAG, "MainActivity: multi_gain navigation succeeded")
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "MainActivity: multi_gain navigation failed", e)
                                 }
                             }
                         }

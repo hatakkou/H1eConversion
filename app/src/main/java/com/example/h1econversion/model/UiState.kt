@@ -19,6 +19,7 @@ sealed interface ImportUiState {
     data object Idle : ImportUiState
     data class Copying(val fileName: String) : ImportUiState
     data class Success(val selectedFile: SelectedFile) : ImportUiState
+    data class Warning(val message: String) : ImportUiState
     data class Error(val message: String) : ImportUiState
 }
 
