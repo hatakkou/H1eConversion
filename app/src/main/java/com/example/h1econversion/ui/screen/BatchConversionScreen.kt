@@ -163,17 +163,17 @@ private fun BatchIdleContent(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "一括変換の準備ができました",
+                    text = stringResource(R.string.batch_idle_ready),
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "ファイル数: ${state.totalFiles}",
+                    text = stringResource(R.string.batch_idle_file_count, state.totalFiles),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "出力フォーマット: AAC / M4A",
+                    text = stringResource(R.string.batch_idle_output_format),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -189,7 +189,7 @@ private fun BatchIdleContent(
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(
-                    text = "変換対象ファイル:",
+                    text = stringResource(R.string.batch_idle_target_files),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -230,7 +230,7 @@ private fun BatchIdleContent(
             onClick = onStartConversion,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("${state.totalFiles}ファイルの変換を開始")
+            Text(stringResource(R.string.batch_idle_start_button, state.totalFiles))
         }
     }
 }
@@ -352,7 +352,7 @@ private fun BatchCompletedContent(
             onSaveAll()
         } else {
             scope.launch {
-                snackbarHostState.showSnackbar("ストレージ権限が必要です")
+                snackbarHostState.showSnackbar(context.getString(R.string.storage_permission_required))
             }
         }
     }
@@ -402,23 +402,44 @@ private fun BatchCompletedContent(
     ) {
         Spacer(modifier = Modifier.height(16.dp))
 
+        // 成功/一部失敗/全失敗で表示を切り替え
+        val isTotalFailure = state.successCount == 0
+        val isPartialFailure = state.successCount > 0 && state.failureCount > 0
+
         Icon(
-            imageVector = Icons.Default.CheckCircle,
+            imageVector = if (isTotalFailure) Icons.Default.Error else Icons.Default.CheckCircle,
             contentDescription = null,
             modifier = Modifier.size(72.dp),
-            tint = MaterialTheme.colorScheme.primary,
+            tint = when {
+                isTotalFailure -> MaterialTheme.colorScheme.error
+                isPartialFailure -> MaterialTheme.colorScheme.tertiary
+                else -> MaterialTheme.colorScheme.primary
+            },
         )
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = stringResource(R.string.batch_conversion_success_title),
+            text = when {
+                isTotalFailure -> stringResource(R.string.batch_conversion_failure_title)
+                isPartialFailure -> stringResource(R.string.batch_conversion_partial_success_title)
+                else -> stringResource(R.string.batch_conversion_success_title)
+            },
             style = MaterialTheme.typography.titleLarge,
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = stringResource(
-                R.string.batch_conversion_success_desc,
-                state.totalFiles,
-            ),
+            text = when {
+                isTotalFailure -> stringResource(R.string.batch_conversion_failure_desc, state.totalFiles)
+                isPartialFailure -> stringResource(
+                    R.string.batch_conversion_partial_success_desc,
+                    state.totalFiles,
+                    state.successCount,
+                    state.failureCount,
+                )
+                else -> stringResource(
+                    R.string.batch_conversion_success_desc,
+                    state.totalFiles,
+                )
+            },
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
         )
@@ -445,7 +466,7 @@ private fun BatchCompletedContent(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "変換済みファイル:",
+                        text = stringResource(R.string.batch_completed_files_label),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -476,7 +497,7 @@ private fun BatchCompletedContent(
                                         }
                                     },
                                 ) {
-                                    Text("共有", style = MaterialTheme.typography.labelSmall)
+                                    Text(stringResource(R.string.batch_share_button), style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
@@ -499,7 +520,7 @@ private fun BatchCompletedContent(
                     CircularProgressIndicator(modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Downloadsに保存中... (${saveState.current}/${saveState.total})",
+                        text = stringResource(R.string.batch_save_progress, saveState.current, saveState.total),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -559,7 +580,8 @@ private fun BatchCompletedContent(
         }
 
         // ---- 保存ボタン ----
-        val isSaveDisabled = saveState is SaveState.Saving
+        // Saving 中および Done 後は保存ボタンを無効化
+        val isSaveDisabled = saveState is SaveState.Saving || saveState is SaveState.Done
         Button(
             onClick = {
                 // Android 6-9 では WRITE_EXTERNAL_STORAGE の実行時許可が必要
@@ -595,7 +617,7 @@ private fun BatchCompletedContent(
                 Spacer(modifier = Modifier.width(4.dp))
             }
             Text(
-                text = if (saveState is SaveState.Saving) "保存中..."
+                text = if (saveState is SaveState.Saving) stringResource(R.string.batch_save_button_saving)
                 else stringResource(R.string.batch_save_button, state.successCount)
             )
         }

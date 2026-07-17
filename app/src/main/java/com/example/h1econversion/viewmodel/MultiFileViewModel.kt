@@ -240,6 +240,11 @@ class MultiFileViewModel(application: Application) : AndroidViewModel(applicatio
                 activePlaybackIndex = fileIndex
                 // 新しいファイルのゲインを設定
                 player.setGain(fileGains[fileIndex])
+                // 新しい activePlaybackIndex を UI に反映してから再生開始
+                val stateAfterSwitch = _uiState.value
+                if (stateAfterSwitch is MultiFileUiState.Ready) {
+                    _uiState.value = stateAfterSwitch.copy(activePlaybackIndex = fileIndex)
+                }
                 withContext(Dispatchers.IO) {
                     player.play(path, wavInfo)
                 }
@@ -251,8 +256,26 @@ class MultiFileViewModel(application: Application) : AndroidViewModel(applicatio
      * 再生を停止します。
      */
     fun stopPlayback() {
-        viewModelScope.launch { player.stop() }
-        activePlaybackIndex = -1
+        val stoppedIndex = activePlaybackIndex
+        viewModelScope.launch {
+            player.stop()
+            // 停止完了後に UI 状態を更新（停止した行の再生状態をリセット）
+            val latestState = _uiState.value
+            if (stoppedIndex >= 0 && latestState is MultiFileUiState.Ready && stoppedIndex < latestState.files.size) {
+                val updated = latestState.files.toMutableList()
+                updated[stoppedIndex] = updated[stoppedIndex].copy(
+                    isPlaying = false,
+                    playbackPositionMs = 0,
+                )
+                _uiState.value = latestState.copy(
+                    files = updated,
+                    activePlaybackIndex = -1,
+                )
+            } else if (latestState is MultiFileUiState.Ready) {
+                _uiState.value = latestState.copy(activePlaybackIndex = -1)
+            }
+            activePlaybackIndex = -1
+        }
     }
 
     /**
@@ -263,6 +286,52 @@ class MultiFileViewModel(application: Application) : AndroidViewModel(applicatio
     fun seekTo(positionMs: Long) {
         if (activePlaybackIndex < 0) return
         viewModelScope.launch {
+            player.seekTo(positionMs)
+        }
+    }
+
+    /**
+     * 指定ファイルをアクティブにしてからシークします。
+     * 既にアクティブなファイルの場合は直接シークし、
+     * 別ファイルの場合は再生開始後にシークします。
+     *
+     * @param fileIndex 対象ファイルのインデックス
+     * @param positionMs シーク先の位置（ミリ秒）
+     */
+    fun seekFile(fileIndex: Int, positionMs: Long) {
+        val current = _uiState.value
+        if (current !is MultiFileUiState.Ready) return
+        if (fileIndex >= filePaths.size) return
+
+        if (activePlaybackIndex == fileIndex) {
+            // 既にアクティブなファイル → 直接シーク
+            seekTo(positionMs)
+            return
+        }
+
+        // 別のファイル → アクティブにしてからシーク
+        val path = filePaths[fileIndex]
+        val wavInfo = fileWavInfos[fileIndex] ?: return
+
+        viewModelScope.launch {
+            player.stop()
+            val latestState = _uiState.value
+            val prevIndex = activePlaybackIndex
+            if (prevIndex >= 0 && latestState is MultiFileUiState.Ready && prevIndex < latestState.files.size) {
+                val updated = latestState.files.toMutableList()
+                updated[prevIndex] = updated[prevIndex].copy(
+                    isPlaying = false,
+                    playbackPositionMs = 0,
+                )
+                _uiState.value = latestState.copy(files = updated)
+            }
+
+            activePlaybackIndex = fileIndex
+            player.setGain(fileGains[fileIndex])
+            withContext(Dispatchers.IO) {
+                player.play(path, wavInfo)
+            }
+            // 再生開始後にシーク
             player.seekTo(positionMs)
         }
     }
@@ -364,11 +433,15 @@ class MultiFileViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    private val cleanupScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + Dispatchers.IO
+    )
+
     override fun onCleared() {
         super.onCleared()
         playerObserverJob?.cancel()
-        // ノンブロッキングでプレイヤーを解放（再生終了を同期待ちしない）
-        viewModelScope.launch {
+        // viewModelScope は既にキャンセルされているため、独立したスコープで解放する
+        cleanupScope.launch {
             player.stop()
             player.release()
         }

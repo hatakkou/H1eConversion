@@ -49,14 +49,10 @@ object MultiFileStateHolder {
     }
 
     /**
-     * パス一覧を取得し、クリアします（二重読み込み防止）。
+     * パス一覧を取得します（クリアせず、復元用に保持します）。
+     * 二重読み込み防止は呼び出し側の remember(backStackEntry.id) で担保されます。
      */
-    fun consume(): List<String> {
-        val paths = selectedPaths
-        selectedPaths = emptyList()
-        prefs?.edit()?.remove(KEY_PATHS)?.apply()
-        return paths
-    }
+    fun consume(): List<String> = selectedPaths
 
     /**
      * 一括変換用のパスとゲインのペアリストを設定します。
@@ -67,13 +63,24 @@ object MultiFileStateHolder {
     }
 
     /**
-     * 一括変換用のパスとゲインのペアリストを取得し、クリアします。
+     * 一括変換用のパスとゲインのペアリストを取得します（クリアせず、復元用に保持します）。
      */
-    fun consumePathGainPairs(): List<Pair<String, Float>> {
-        val pairs = pathGainPairs
+    fun consumePathGainPairs(): List<Pair<String, Float>> = pathGainPairs
+
+    /**
+     * 選択パス一覧を明示的にクリアします。ワークフロー完了時に呼び出します。
+     */
+    fun clearPaths() {
+        selectedPaths = emptyList()
+        prefs?.edit()?.remove(KEY_PATHS)?.apply()
+    }
+
+    /**
+     * 一括変換用ペアリストを明示的にクリアします。ワークフロー完了時に呼び出します。
+     */
+    fun clearPathGainPairs() {
         pathGainPairs = emptyList()
         prefs?.edit()?.remove(KEY_PAIRS)?.apply()
-        return pairs
     }
 
     // ---- シリアライズ補助 ----

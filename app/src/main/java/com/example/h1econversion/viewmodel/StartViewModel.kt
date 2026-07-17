@@ -10,6 +10,8 @@ import com.example.h1econversion.model.FileSource
 import com.example.h1econversion.model.ImportUiState
 import com.example.h1econversion.model.SelectedFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 sealed interface StartNavigationEvent {
@@ -86,12 +90,18 @@ class StartViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _importState.value = ImportUiState.Copying("${files.size}ファイルをコピー中…")
 
-            // 並列コピー（IO スレッド）
+            // 並列コピー（IO スレッド、同時実行数制限付き）
+            val concurrencyLimit = 4
+            val semaphore = kotlinx.coroutines.sync.Semaphore(concurrencyLimit)
             val results = withContext(Dispatchers.IO) {
                 files.map { (uri, fileName) ->
-                    Log.d(TAG, "onMultipleFilesPicked: copying $fileName")
-                    localRepo.copyUriToLocal(uri, fileName, FileSource.LOCAL_IMPORT)
-                }
+                    async {
+                        semaphore.withPermit {
+                            Log.d(TAG, "onMultipleFilesPicked: copying $fileName")
+                            localRepo.copyUriToLocal(uri, fileName, FileSource.LOCAL_IMPORT)
+                        }
+                    }
+                }.awaitAll()
             }
 
             // 結果の集計

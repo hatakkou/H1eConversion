@@ -89,4 +89,25 @@
     <string name="batch_conversion_success_detail">成功: %1$d / 失敗: %2$d</string>
     <string name="batch_save_button">%1$dファイルをDownloadsに保存</string>
     <string name="batch_conversion_back_button">一括変換画面に戻る</string>
+    <string name="batch_idle_ready">一括変換の準備ができました</string>
+    <string name="batch_idle_file_count">ファイル数: %1$d</string>
+    <string name="batch_idle_output_format">出力フォーマット: AAC / M4A</string>
+    <string name="batch_idle_target_files">変換対象ファイル:</string>
+    <string name="batch_idle_start_button">%1$dファイルの変換を開始</string>
+    <string name="batch_completed_files_label">変換済みファイル:</string>
+    <string name="batch_share_button">共有</string>
+    <string name="batch_save_progress">Downloadsに保存中... (%1$d/%2$d)</string>
+    <string name="batch_save_button_saving">保存中...</string>
+    <string name="storage_permission_required">ストレージ権限が必要です</string>
+    <string name="batch_conversion_partial_success_title">一部失敗あり</string>
+    <string name="batch_conversion_partial_success_desc">%1$d ファイル中 %2$d 成功、%3$d 失敗</string>
+    <string name="batch_conversion_failure_title">変換失敗</string>
+    <string name="batch_conversion_failure_desc">%1$d ファイルすべての変換に失敗しました</string>
+
+    <!-- Multi-file Gain Screen: selection labels -->
+    <string name="multi_gain_select_all">すべて選択</string>
+    <string name="multi_gain_deselect_all">すべて解除</string>
+    <string name="multi_gain_selection_count">%1$d / %2$d ファイル選択中</string>
+    <string name="multi_gain_deselect_one">選択解除</string>
+    <string name="multi_gain_select_one">選択</string>
 </resources>

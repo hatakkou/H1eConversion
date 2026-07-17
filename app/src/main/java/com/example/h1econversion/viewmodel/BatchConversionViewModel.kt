@@ -85,8 +85,6 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
         private const val TAG = "BatchConversionVM"
         /** MediaCodecConverter.convert の最大同時実行数 */
         private const val MAX_CONCURRENT_CONVERSIONS = 2
-        /** ファイル名の競合を避けるためのカウンター起点 */
-        private var fileNameCounter = 0L
     }
 
     private val _uiState = MutableStateFlow<BatchConversionUiState>(
@@ -164,10 +162,8 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
                                 val baseName = displayName.substringBeforeLast(".")
                                 val gainPercent = (gain * 100f).toInt()
 
-                                // ユニークな出力ファイル名（競合回避のためサフィックスを付加）
-                                val uniqueSuffix = synchronized(BatchConversionViewModel.Companion) {
-                                    fileNameCounter++
-                                }
+                                // ユニークな出力ファイル名（UUID で競合を回避）
+                                val uniqueSuffix = java.util.UUID.randomUUID().toString().take(8)
                                 val outputName = "${baseName}_gain${gainPercent}_${uniqueSuffix}.m4a"
                                 val outputPath = File(outputDir, outputName).absolutePath
 
@@ -319,6 +315,18 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
                         saveState = SaveState.Done(savedCount = savedCount, message = message)
                     )
                 }
+
+                // Downloads 保存完了後、キャッシュの M4A ファイルを削除（既にコピー済みのため不要）
+                if (savedCount > 0) {
+                    withContext(Dispatchers.IO) {
+                        files.forEach { file ->
+                            if (file.exists()) {
+                                val deleted = file.delete()
+                                Log.d(TAG, "saveAllToDownloads: cache cleanup ${file.name} deleted=$deleted")
+                            }
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "saveAllToDownloads failed", e)
                 val s = _uiState.value
@@ -430,9 +438,11 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
     private fun updateConvertingState(totalFiles: Int) {
         val current = _uiState.value
         if (current is BatchConversionUiState.Converting) {
-            // 完了ファイル数はログから "✓ 完了:" の数をカウント
+            // 完了ファイル数はログから "✓ 完了:" / "✗ 失敗:" / "✗ 例外:" の数をカウント
             val completed = synchronized(logLock) {
-                logBuffer.count { it.startsWith("✓ 完了:") || it.startsWith("✗ 失敗:") }
+                logBuffer.count { line ->
+                    line.startsWith("✓ 完了:") || line.startsWith("✗ 失敗:") || line.startsWith("✗ 例外:")
+                }
             }
             _uiState.value = current.copy(
                 completedFiles = completed.coerceAtMost(totalFiles),

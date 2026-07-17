@@ -247,14 +247,15 @@ private fun MultiFileContent(
             ) {
                 Icon(
                     imageVector = if (allSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                    contentDescription = if (allSelected) "すべて解除" else "すべて選択",
+                    contentDescription = if (allSelected) stringResource(R.string.multi_gain_deselect_all)
+                    else stringResource(R.string.multi_gain_select_all),
                     modifier = Modifier.size(24.dp),
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = "$selectedCount / ${state.files.size} ファイル選択中",
+                text = stringResource(R.string.multi_gain_selection_count, selectedCount, state.files.size),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -280,11 +281,7 @@ private fun MultiFileContent(
                     onSetGain = { gain -> onSetFileGain(index, gain) },
                     onTogglePlayPause = { onTogglePlayPause(index) },
                     onSeek = { positionMs ->
-                        // 非アクティブなファイルのシークは、そのファイルをアクティブにしてから行う
-                        if (state.activePlaybackIndex != index) {
-                            onTogglePlayPause(index)
-                        }
-                        onSeek(positionMs)
+                        viewModel.seekFile(index, positionMs)
                     },
                 )
                 Spacer(modifier = Modifier.height(4.dp))
@@ -347,7 +344,8 @@ private fun FileGainRow(
                     Icon(
                         imageVector = if (item.isSelected) Icons.Default.CheckBox
                         else Icons.Default.CheckBoxOutlineBlank,
-                        contentDescription = if (item.isSelected) "選択解除" else "選択",
+                        contentDescription = if (item.isSelected) stringResource(R.string.multi_gain_deselect_one)
+                        else stringResource(R.string.multi_gain_select_one),
                         modifier = Modifier.size(22.dp),
                         tint = if (item.isSelected) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -414,7 +412,8 @@ private fun FileGainRow(
                     Icon(
                         imageVector = if (item.isPlaying) Icons.Default.Pause
                         else Icons.Default.PlayArrow,
-                        contentDescription = if (item.isPlaying) "停止" else "再生",
+                        contentDescription = if (item.isPlaying) stringResource(R.string.stop)
+                        else stringResource(R.string.play),
                         modifier = Modifier.size(20.dp),
                         tint = if (item.wavInfo != null) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),

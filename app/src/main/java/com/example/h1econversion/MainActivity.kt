@@ -53,15 +53,7 @@ class MainActivity : ComponentActivity() {
                     if (BuildConfig.DEBUG) Log.d(TAG, "filePickerLauncher: callback invoked, uris=$uris, count=${uris.size}, isManualDeviceSelect=$isManualDeviceSelect")
                     try {
                         if (uris.isNotEmpty()) {
-                            // 永続的読み取り権限を取得
-                            for (uri in uris) {
-                                try {
-                                    val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                    contentResolver.takePersistableUriPermission(uri, takeFlags)
-                                } catch (e: SecurityException) {
-                                    Log.w(TAG, "filePickerLauncher: could not take persistable permission for $uri", e)
-                                }
-                            }
+                            // URI 読み取り権限はピッカーからの一時付与で十分（インポート後はアプリ内ストレージにコピーするため）
 
                             lifecycleScope.launch {
                                 try {

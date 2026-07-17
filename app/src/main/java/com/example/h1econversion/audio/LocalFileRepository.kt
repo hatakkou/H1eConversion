@@ -24,6 +24,9 @@ class LocalFileRepository(private val context: Context) {
         private const val META_EXTENSION = ".meta"
         private const val META_SEPARATOR = "\n"
 
+        /** デフォルトの録音ファイル保持期間（7日） */
+        const val DEFAULT_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
+
         /**
          * ファイルパスからユーザー表示用のファイル名を取得します。
          * メタファイルがあれば元のファイル名を返し、なければUUIDプレフィックスを除去した名前を返します。
@@ -200,5 +203,105 @@ class LocalFileRepository(private val context: Context) {
         } catch (_: Exception) {
             null
         }
+    }
+
+    // ========================================================================
+    // クリーンアップ関連メソッド
+    // ========================================================================
+
+    /**
+     * 指定された録音ファイル（WAV本体とメタデータファイル）を削除します。
+     * パストラバーサル防止のため、recordingsDir 配下のファイルのみ削除を許可します。
+     *
+     * @param localPath 削除対象の録音ファイルの絶対パス
+     * @return WAV ファイルの削除に成功した場合は true
+     */
+    fun deleteRecording(localPath: String): Boolean {
+        return try {
+            val wavFile = File(localPath)
+            // パストラバーサル防止: recordingsDir 配下のみ削除を許可
+            if (!wavFile.canonicalPath.startsWith(recordingsDir.canonicalPath + File.separator)) {
+                Log.w(TAG, "deleteRecording: path traversal blocked for $localPath")
+                return false
+            }
+            var deleted = false
+            if (wavFile.exists()) {
+                deleted = wavFile.delete()
+                Log.d(TAG, "deleteRecording: WAV deleted=$deleted path=$localPath")
+            }
+            // WAV削除の成否にかかわらず、メタデータファイルも削除を試みる
+            val metaFile = File(localPath + META_EXTENSION)
+            if (metaFile.exists()) {
+                val metaDeleted = metaFile.delete()
+                Log.d(TAG, "deleteRecording: meta deleted=$metaDeleted")
+            }
+            deleted
+        } catch (e: Exception) {
+            Log.w(TAG, "deleteRecording: failed for $localPath", e)
+            false
+        }
+    }
+
+    /**
+     * 保持期間を超えた古い録音ファイルを一括削除します。
+     * .meta ファイルは WAV 削除時に同時削除されるため個別処理しません。
+     * .tmp ファイルはカットオフ時刻より古い（孤立した）もののみ削除し、
+     * 最近のものは進行中のコピーが存在する可能性があるためスキップします。
+     *
+     * @param maxAgeMs 許容する最大経過時間（ミリ秒）。この時間より前に最終更新されたファイルを削除します。
+     * @return 削除したファイルの数
+     */
+    fun cleanupOldRecordings(maxAgeMs: Long = DEFAULT_MAX_AGE_MS): Int {
+        val cutoffTime = System.currentTimeMillis() - maxAgeMs
+        val files = recordingsDir.listFiles() ?: return 0
+        var deletedCount = 0
+        for (file in files) {
+            // .meta ファイルは WAV 削除時に同時削除されるため個別処理しない
+            if (file.name.endsWith(META_EXTENSION)) continue
+            // .tmp ファイルはカットオフより新しい場合は進行中とみなしスキップ、古いものは孤立ファイルとして削除
+            if (file.name.endsWith(".tmp")) {
+                if (file.lastModified() >= cutoffTime) continue
+                if (file.delete()) {
+                    deletedCount++
+                    Log.d(TAG, "cleanupOldRecordings: deleted stale tmp file: ${file.name}")
+                }
+                continue
+            }
+            if (file.lastModified() < cutoffTime) {
+                val metaFile = File(file.absolutePath + META_EXTENSION)
+                if (file.delete()) {
+                    deletedCount++
+                    if (metaFile.exists()) {
+                        metaFile.delete()
+                    }
+                }
+            }
+        }
+        if (deletedCount > 0) {
+            Log.i(TAG, "cleanupOldRecordings: deleted $deletedCount old recording(s)")
+        }
+        return deletedCount
+    }
+
+    /**
+     * すべての録音ファイル（WAV本体とメタデータ）を削除します。
+     * .tmp ファイル（コピー途中）はスキップします。
+     *
+     * @return 削除したファイルの総数
+     */
+    fun deleteAllRecordings(): Int {
+        val files = recordingsDir.listFiles() ?: return 0
+        var deletedCount = 0
+        for (file in files) {
+            // .tmp ファイルは進行中のコピーが存在する可能性があるためスキップ
+            if (file.name.endsWith(".tmp")) continue
+            if (file.delete()) {
+                deletedCount++
+            }
+        }
+        if (deletedCount > 0) {
+            Log.i(TAG, "deleteAllRecordings: deleted $deletedCount file(s)")
+        }
+        return deletedCount
     }
 }
