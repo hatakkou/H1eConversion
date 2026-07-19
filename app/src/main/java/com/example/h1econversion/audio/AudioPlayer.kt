@@ -26,6 +26,10 @@ import kotlin.math.tanh
  */
 sealed interface PlayerState {
     data object Idle : PlayerState
+    /** 再生開始処理中（AudioTrack/ファイル初期化中）。seekTo() はこの状態では
+     * ファイル操作を行わず _currentFrame の更新のみ実施し、startPlayback() の
+     * 初期化完了後に反映されます。 */
+    data object Starting : PlayerState
     data object Playing : PlayerState
     data object Paused : PlayerState
     data object Finished : PlayerState
@@ -108,7 +112,7 @@ class AudioPlayer {
     /**
      * Load a WAV file for playback. Does not start playing.
      */
-    suspend fun load(filePath: String, wavInfo: WavInfo) {
+    suspend fun load(wavInfo: WavInfo) {
         mutex.withLock {
             // cancel 前に状態を Idle に変更し、resume() の finally ブロックで
             // Finished が誤って発行されるのを防ぐ
@@ -124,8 +128,13 @@ class AudioPlayer {
 
     /**
      * 再生を開始または再開します。Mutex により直列化されます。
+     *
+     * @param filePath 再生する WAV ファイルのパス
+     * @param wavInfo WAV ヘッダ情報
+     * @param startPositionMs 再生開始位置（ミリ秒）。0 の場合は先頭から再生します。
+     *   一時停止からの再開時は無視され、前回の停止位置から継続します。
      */
-    suspend fun play(filePath: String, wavInfo: WavInfo) {
+    suspend fun play(filePath: String, wavInfo: WavInfo, startPositionMs: Long = 0L) {
         // 事前チェック（ロック外）
         if (_state.value is PlayerState.Playing) return
 
@@ -148,9 +157,27 @@ class AudioPlayer {
                 }
             }
 
+            // 開始位置を設定（一時停止からの再開時は除く）
+            // seekTo() との競合を避けるため、Mutex 内でアトミックに _currentFrame を設定する
+            // startPositionMs == 0 の場合も先頭にリセットする（前回再生位置の残留を防止）
+            if (!wasPaused) {
+                val info = _wavInfo ?: return@withLock
+                _currentFrame.value = if (startPositionMs > 0 && info.numFrames > 0) {
+                    (startPositionMs * info.sampleRate / 1000L)
+                        .coerceIn(0, info.numFrames - 1)
+                } else {
+                    0L  // 先頭から再生（numFrames == 0 の空データも安全）
+                }
+            }
+
             // Mutex 内で再生ループを起動（stop/seekTo/release との競合を防止）
             val info = _wavInfo ?: return@withLock
             val path = filePath
+            // 新規再生時は Starting 状態を設定し、seekTo() が Idle と誤認して
+            // ファイル操作を行わないようにする
+            if (!wasPaused) {
+                _state.value = PlayerState.Starting
+            }
             playbackJob = playerScope.launch(Dispatchers.IO) {
                 if (wasPaused) {
                     resume()
@@ -224,9 +251,15 @@ class AudioPlayer {
 
         val raf = RandomAccessFile(filePath, "r")
         currentFile = raf
-        raf.seek(wavInfo.dataOffset)
 
         val bytesPerFrame = channels * (bits / 8)
+
+        // _currentFrame を参照して初期シーク位置を決定する。
+        // play() の Mutex 内で startPositionMs に基づき _currentFrame が設定済みのため、
+        // startPlayback() 起動前に seekTo() が介入しても正しい位置から再生開始される。
+        val startByteOffset = wavInfo.dataOffset + _currentFrame.value * bytesPerFrame
+        raf.seek(startByteOffset)
+
         val rawBuf = ByteArray(CHUNK_FRAMES * bytesPerFrame)
         val floatBuf = if (encoding == AudioFormat.ENCODING_PCM_FLOAT) {
             FloatArray(CHUNK_FRAMES * channels)
@@ -237,8 +270,8 @@ class AudioPlayer {
         track.play()
         _state.value = PlayerState.Playing
 
-        // dataSize ベースの残量管理
-        var remainingBytes: Long = wavInfo.dataSize
+        // dataSize ベースの残量管理（開始位置を考慮）
+        var remainingBytes: Long = wavInfo.dataSize - (startByteOffset - wavInfo.dataOffset)
 
         try {
             var bytesRead: Int
@@ -458,7 +491,14 @@ class AudioPlayer {
                         resume()
                     }
                 }
+            } else if (_state.value is PlayerState.Starting) {
+                // 再生開始処理中：AudioTrack/ファイルが未初期化の可能性があるため
+                // ファイル操作は行わず _currentFrame の更新のみ実施。
+                // startPlayback() は初期化完了時に最新の _currentFrame を読み取るため
+                // シーク位置は正しく反映される。
+                _currentFrame.value = targetFrame
             } else {
+                // Idle / Finished: 再生ループが存在しないためファイル位置を直接更新
                 currentFile?.seek(byteOffset)
                 _currentFrame.value = targetFrame
             }

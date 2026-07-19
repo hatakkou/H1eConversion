@@ -472,7 +472,7 @@ private fun BatchCompletedContent(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     LazyColumn {
-                        itemsIndexed(state.successFiles) { index, file ->
+                        itemsIndexed(state.successFiles) { _, file ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -580,8 +580,9 @@ private fun BatchCompletedContent(
         }
 
         // ---- 保存ボタン ----
-        // Saving 中および Done 後は保存ボタンを無効化
-        val isSaveDisabled = saveState is SaveState.Saving || saveState is SaveState.Done
+        // Saving 中は無効化。累積保存数が全成功ファイル数に達したら無効化（部分成功は再試行可能）
+        val isSaveDisabled = saveState is SaveState.Saving ||
+            (saveState is SaveState.Done && state.cumulativeSavedCount >= state.successCount)
         Button(
             onClick = {
                 // Android 6-9 では WRITE_EXTERNAL_STORAGE の実行時許可が必要

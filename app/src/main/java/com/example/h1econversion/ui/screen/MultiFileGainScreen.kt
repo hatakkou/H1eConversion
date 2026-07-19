@@ -129,7 +129,7 @@ fun MultiFileGainScreen(
                         onSetFileGain = viewModel::setFileGain,
                         onSetBatchGain = viewModel::setBatchGain,
                         onTogglePlayPause = viewModel::togglePlayPause,
-                        onSeek = viewModel::seekTo,
+                        onSeek = viewModel::seekFile,
                         onNavigateToConversion = {
                             val selected = viewModel.getSelectedFilesWithGain()
                             if (selected.isNotEmpty()) {
@@ -169,7 +169,7 @@ private fun MultiFileContent(
     onSetFileGain: (Int, Float) -> Unit,
     onSetBatchGain: (Float) -> Unit,
     onTogglePlayPause: (Int) -> Unit,
-    onSeek: (Long) -> Unit,
+    onSeek: (Int, Long) -> Unit,
     onNavigateToConversion: () -> Unit,
 ) {
     val selectedCount = state.files.count { it.isSelected }
@@ -280,9 +280,7 @@ private fun MultiFileContent(
                     onToggleSelection = { onToggleFileSelection(index) },
                     onSetGain = { gain -> onSetFileGain(index, gain) },
                     onTogglePlayPause = { onTogglePlayPause(index) },
-                    onSeek = { positionMs ->
-                        viewModel.seekFile(index, positionMs)
-                    },
+                    onSeek = { positionMs -> onSeek(index, positionMs) },
                 )
                 Spacer(modifier = Modifier.height(4.dp))
             }

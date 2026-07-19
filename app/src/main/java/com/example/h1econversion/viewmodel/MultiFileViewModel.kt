@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -56,6 +58,9 @@ class MultiFileViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** プレイヤー状態監視 Job */
     private var playerObserverJob: Job? = null
+
+    /** プレイヤー操作の直列化用 Mutex（stop/play/seek の競合を防止） */
+    private val playerMutex = Mutex()
 
     /**
      * 複数ファイルを読み込み、UI 状態を初期化します。
@@ -205,48 +210,46 @@ class MultiFileViewModel(application: Application) : AndroidViewModel(applicatio
         val path = filePaths[fileIndex]
         val wavInfo = fileWavInfos[fileIndex] ?: return
 
-        // 現在のゲインをプレイヤーに設定
-        player.setGain(fileGains[fileIndex])
+        viewModelScope.launch {
+            playerMutex.withLock {
+                // Mutex 内で activePlaybackIndex と player.state を再評価し、
+                // ロック取得待ちの間に状態が変化していても最新の情報で判定する
+                player.setGain(fileGains[fileIndex])
 
-        if (activePlaybackIndex == fileIndex) {
-            // 同じファイル：再生中なら停止、停止中なら再生
-            when (player.state.value) {
-                is PlayerState.Playing -> {
-                    viewModelScope.launch { player.stop() }
-                }
-                else -> {
-                    viewModelScope.launch(Dispatchers.IO) {
+                if (activePlaybackIndex == fileIndex) {
+                    // 同じファイル：再生中なら停止、停止中なら再生
+                    when (player.state.value) {
+                        is PlayerState.Playing -> player.stop()
+                        else -> {
+                            withContext(Dispatchers.IO) {
+                                player.play(path, wavInfo)
+                            }
+                        }
+                    }
+                } else {
+                    // 別のファイルに切り替え
+                    player.stop()
+                    // 前のファイルの再生状態をリセット
+                    val latestState = _uiState.value
+                    val prevIndex = activePlaybackIndex
+                    if (prevIndex >= 0 && latestState is MultiFileUiState.Ready && prevIndex < latestState.files.size) {
+                        val updated = latestState.files.toMutableList()
+                        updated[prevIndex] = updated[prevIndex].copy(
+                            isPlaying = false,
+                            playbackPositionMs = 0,
+                        )
+                        _uiState.value = latestState.copy(files = updated)
+                    }
+
+                    activePlaybackIndex = fileIndex
+                    player.setGain(fileGains[fileIndex])
+                    val stateAfterSwitch = _uiState.value
+                    if (stateAfterSwitch is MultiFileUiState.Ready) {
+                        _uiState.value = stateAfterSwitch.copy(activePlaybackIndex = fileIndex)
+                    }
+                    withContext(Dispatchers.IO) {
                         player.play(path, wavInfo)
                     }
-                }
-            }
-        } else {
-            // 別のファイルに切り替え
-            viewModelScope.launch {
-                player.stop()
-                // stop() は suspending 関数のため、その間に UI 状態が変化している可能性がある。
-                // 最新の状態を再取得してから前のファイルの再生状態をリセットする。
-                val latestState = _uiState.value
-                val prevIndex = activePlaybackIndex
-                if (prevIndex >= 0 && latestState is MultiFileUiState.Ready && prevIndex < latestState.files.size) {
-                    val updated = latestState.files.toMutableList()
-                    updated[prevIndex] = updated[prevIndex].copy(
-                        isPlaying = false,
-                        playbackPositionMs = 0,
-                    )
-                    _uiState.value = latestState.copy(files = updated)
-                }
-
-                activePlaybackIndex = fileIndex
-                // 新しいファイルのゲインを設定
-                player.setGain(fileGains[fileIndex])
-                // 新しい activePlaybackIndex を UI に反映してから再生開始
-                val stateAfterSwitch = _uiState.value
-                if (stateAfterSwitch is MultiFileUiState.Ready) {
-                    _uiState.value = stateAfterSwitch.copy(activePlaybackIndex = fileIndex)
-                }
-                withContext(Dispatchers.IO) {
-                    player.play(path, wavInfo)
                 }
             }
         }
@@ -256,25 +259,27 @@ class MultiFileViewModel(application: Application) : AndroidViewModel(applicatio
      * 再生を停止します。
      */
     fun stopPlayback() {
-        val stoppedIndex = activePlaybackIndex
         viewModelScope.launch {
-            player.stop()
-            // 停止完了後に UI 状態を更新（停止した行の再生状態をリセット）
-            val latestState = _uiState.value
-            if (stoppedIndex >= 0 && latestState is MultiFileUiState.Ready && stoppedIndex < latestState.files.size) {
-                val updated = latestState.files.toMutableList()
-                updated[stoppedIndex] = updated[stoppedIndex].copy(
-                    isPlaying = false,
-                    playbackPositionMs = 0,
-                )
-                _uiState.value = latestState.copy(
-                    files = updated,
-                    activePlaybackIndex = -1,
-                )
-            } else if (latestState is MultiFileUiState.Ready) {
-                _uiState.value = latestState.copy(activePlaybackIndex = -1)
+            playerMutex.withLock {
+                val stoppedIndex = activePlaybackIndex
+                player.stop()
+                // 停止完了後に UI 状態を更新（停止した行の再生状態をリセット）
+                val latestState = _uiState.value
+                if (stoppedIndex >= 0 && latestState is MultiFileUiState.Ready && stoppedIndex < latestState.files.size) {
+                    val updated = latestState.files.toMutableList()
+                    updated[stoppedIndex] = updated[stoppedIndex].copy(
+                        isPlaying = false,
+                        playbackPositionMs = 0,
+                    )
+                    _uiState.value = latestState.copy(
+                        files = updated,
+                        activePlaybackIndex = -1,
+                    )
+                } else if (latestState is MultiFileUiState.Ready) {
+                    _uiState.value = latestState.copy(activePlaybackIndex = -1)
+                }
+                activePlaybackIndex = -1
             }
-            activePlaybackIndex = -1
         }
     }
 
@@ -284,9 +289,13 @@ class MultiFileViewModel(application: Application) : AndroidViewModel(applicatio
      * @param positionMs シーク先の位置（ミリ秒）
      */
     fun seekTo(positionMs: Long) {
-        if (activePlaybackIndex < 0) return
         viewModelScope.launch {
-            player.seekTo(positionMs)
+            playerMutex.withLock {
+                // Mutex 内で activePlaybackIndex を再評価し、
+                // ロック取得待ちの間に再生が停止していた場合はシークをスキップ
+                if (activePlaybackIndex < 0) return@withLock
+                player.seekTo(positionMs)
+            }
         }
     }
 
@@ -303,36 +312,44 @@ class MultiFileViewModel(application: Application) : AndroidViewModel(applicatio
         if (current !is MultiFileUiState.Ready) return
         if (fileIndex >= filePaths.size) return
 
-        if (activePlaybackIndex == fileIndex) {
-            // 既にアクティブなファイル → 直接シーク
-            seekTo(positionMs)
-            return
-        }
-
-        // 別のファイル → アクティブにしてからシーク
         val path = filePaths[fileIndex]
         val wavInfo = fileWavInfos[fileIndex] ?: return
 
         viewModelScope.launch {
-            player.stop()
-            val latestState = _uiState.value
-            val prevIndex = activePlaybackIndex
-            if (prevIndex >= 0 && latestState is MultiFileUiState.Ready && prevIndex < latestState.files.size) {
-                val updated = latestState.files.toMutableList()
-                updated[prevIndex] = updated[prevIndex].copy(
-                    isPlaying = false,
-                    playbackPositionMs = 0,
-                )
-                _uiState.value = latestState.copy(files = updated)
-            }
+            playerMutex.withLock {
+                // Mutex 内で activePlaybackIndex を再評価し、
+                // ロック取得待ちの間にファイルが切り替わっていても最新の状態で判定する
+                if (activePlaybackIndex == fileIndex) {
+                    // 既にアクティブなファイル → 直接シーク
+                    player.seekTo(positionMs)
+                    return@withLock
+                }
 
-            activePlaybackIndex = fileIndex
-            player.setGain(fileGains[fileIndex])
-            withContext(Dispatchers.IO) {
-                player.play(path, wavInfo)
+                // 別のファイル → アクティブにしてから指定位置で再生開始
+                player.stop()
+                val latestState = _uiState.value
+                val prevIndex = activePlaybackIndex
+                if (prevIndex >= 0 && latestState is MultiFileUiState.Ready && prevIndex < latestState.files.size) {
+                    val updated = latestState.files.toMutableList()
+                    updated[prevIndex] = updated[prevIndex].copy(
+                        isPlaying = false,
+                        playbackPositionMs = 0,
+                    )
+                    _uiState.value = latestState.copy(files = updated)
+                }
+
+                activePlaybackIndex = fileIndex
+                player.setGain(fileGains[fileIndex])
+                val stateAfterSwitch = _uiState.value
+                if (stateAfterSwitch is MultiFileUiState.Ready) {
+                    _uiState.value = stateAfterSwitch.copy(activePlaybackIndex = fileIndex)
+                }
+                // play() の startPositionMs で位置を指定することで、
+                // play() → seekTo() の2段階呼び出しによる競合を防止する
+                withContext(Dispatchers.IO) {
+                    player.play(path, wavInfo, startPositionMs = positionMs)
+                }
             }
-            // 再生開始後にシーク
-            player.seekTo(positionMs)
         }
     }
 

@@ -52,6 +52,8 @@ sealed interface BatchConversionUiState {
         val successFiles: List<File>,
         val logs: List<String>,
         val saveState: SaveState = SaveState.Idle,
+        /** 累積保存成功数（複数回の saveAllToDownloads 呼び出しにまたがる合計） */
+        val cumulativeSavedCount: Int = 0,
     ) : BatchConversionUiState
 
     /** エラー */
@@ -263,10 +265,14 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
     fun saveAllToDownloads() {
         val currentState = _uiState.value
         if (currentState !is BatchConversionUiState.Completed) return
+        // 未保存のファイルのみを対象とする（既に保存済みで削除されたファイルは successFiles から除去済み）
         val files = currentState.successFiles
         if (files.isEmpty()) {
             _uiState.value = currentState.copy(
-                saveState = SaveState.SaveError("保存するファイルがありません")
+                saveState = SaveState.Done(
+                    savedCount = 0,
+                    message = "すべてのファイルが既に保存されています"
+                )
             )
             return
         }
@@ -280,6 +286,7 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
                 val app = getApplication<Application>()
                 var savedCount = 0
                 val errors = mutableListOf<String>()
+                val savedFiles = mutableListOf<File>()
 
                 files.forEachIndexed { index, file ->
                     try {
@@ -288,6 +295,7 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
                         }
                         if (success) {
                             savedCount++
+                            savedFiles.add(file)
                         } else {
                             errors.add(file.name)
                         }
@@ -304,28 +312,43 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
                     }
                 }
 
+                // 累積保存数を更新
+                val s = _uiState.value
+                val newCumulativeCount = if (s is BatchConversionUiState.Completed) {
+                    s.cumulativeSavedCount + savedCount
+                } else {
+                    savedCount
+                }
+
                 val message = if (errors.isEmpty()) {
-                    "${savedCount}個のファイルをDownloadsに保存しました"
+                    "${savedCount}個のファイルをDownloadsに保存しました（累積: ${newCumulativeCount}個）"
                 } else {
                     "${savedCount}個保存 / ${errors.size}個失敗: ${errors.take(2).joinToString(", ")}"
                 }
-                val s = _uiState.value
-                if (s is BatchConversionUiState.Completed) {
-                    _uiState.value = s.copy(
-                        saveState = SaveState.Done(savedCount = savedCount, message = message)
-                    )
-                }
 
-                // Downloads 保存完了後、キャッシュの M4A ファイルを削除（既にコピー済みのため不要）
-                if (savedCount > 0) {
+                // Downloads 保存完了後、コピー成功が確認できたキャッシュファイルのみ削除
+                // 失敗ファイルは再試行用に保持。成功ファイルは successFiles から除去し、
+                // 共有ボタンが削除済みファイルを参照しないようにする
+                if (savedFiles.isNotEmpty()) {
                     withContext(Dispatchers.IO) {
-                        files.forEach { file ->
+                        savedFiles.forEach { file ->
                             if (file.exists()) {
                                 val deleted = file.delete()
                                 Log.d(TAG, "saveAllToDownloads: cache cleanup ${file.name} deleted=$deleted")
                             }
                         }
                     }
+                }
+
+                val currentAfterCleanup = _uiState.value
+                if (currentAfterCleanup is BatchConversionUiState.Completed) {
+                    // 保存成功したファイルを successFiles から除去（再試行・共有の対象外にする）
+                    val remainingFiles = currentAfterCleanup.successFiles.filter { it !in savedFiles }
+                    _uiState.value = currentAfterCleanup.copy(
+                        successFiles = remainingFiles,
+                        cumulativeSavedCount = newCumulativeCount,
+                        saveState = SaveState.Done(savedCount = savedCount, message = message)
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "saveAllToDownloads failed", e)

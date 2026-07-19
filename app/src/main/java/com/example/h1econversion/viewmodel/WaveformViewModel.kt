@@ -95,7 +95,7 @@ class WaveformViewModel(application: Application) : AndroidViewModel(application
                 onSuccess = { (wavInfo, waveformData) ->
                     currentFilePath = requestedPath
                     currentWavInfo = wavInfo
-                    player.load(requestedPath, wavInfo)
+                    player.load(wavInfo)
                     _uiState.value = WaveformUiState.Ready(
                         wavInfo = WavInfoData(
                             sampleRate = wavInfo.sampleRate,

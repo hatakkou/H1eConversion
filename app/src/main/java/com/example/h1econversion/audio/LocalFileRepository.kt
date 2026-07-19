@@ -256,8 +256,18 @@ class LocalFileRepository(private val context: Context) {
         val files = recordingsDir.listFiles() ?: return 0
         var deletedCount = 0
         for (file in files) {
-            // .meta ファイルは WAV 削除時に同時削除されるため個別処理しない
-            if (file.name.endsWith(META_EXTENSION)) continue
+            // .meta ファイル: 対応する WAV が存在しない場合は孤立メタデータとして削除
+            if (file.name.endsWith(META_EXTENSION)) {
+                val wavPath = file.absolutePath.removeSuffix(META_EXTENSION)
+                val wavFile = File(wavPath)
+                if (!wavFile.exists()) {
+                    if (file.delete()) {
+                        deletedCount++
+                        Log.d(TAG, "cleanupOldRecordings: deleted orphaned meta file: ${file.name}")
+                    }
+                }
+                continue
+            }
             // .tmp ファイルはカットオフより新しい場合は進行中とみなしスキップ、古いものは孤立ファイルとして削除
             if (file.name.endsWith(".tmp")) {
                 if (file.lastModified() >= cutoffTime) continue
