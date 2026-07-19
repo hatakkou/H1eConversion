@@ -58,6 +58,36 @@ class LocalFileRepository(private val context: Context) {
             val uuidRegex = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}_")
             return uuidRegex.replaceFirst(fileName, "")
         }
+
+        /**
+         * ファイルの表示名のみを変更します（WAVファイル本体はリネームしません）。
+         * .metaファイル内の表示名を更新します。.metaファイルが存在しない場合は新規作成します。
+         *
+         * @param filePath 対象ファイルのパス
+         * @param newDisplayName 新しい表示名
+         * @return 成功時はtrue
+         */
+        fun updateDisplayName(filePath: String, newDisplayName: String): Boolean {
+            return try {
+                val metaFile = File(filePath + META_EXTENSION)
+                if (metaFile.exists()) {
+                    // 既存のメタデータを読み取り、表示名だけ更新
+                    val content = metaFile.readText().trim()
+                    val lines = content.split(META_SEPARATOR)
+                    // ソースが存在しない/空の場合は LOCAL_IMPORT をフォールバックとして使用
+                    val source = if (lines.isNotEmpty() && lines[0].isNotBlank()) lines[0] else "LOCAL_IMPORT"
+                    metaFile.writeText("$source$META_SEPARATOR$newDisplayName")
+                } else {
+                    // メタファイルがない場合は新規作成
+                    metaFile.writeText("LOCAL_IMPORT$META_SEPARATOR$newDisplayName")
+                }
+                Log.d(TAG, "updateDisplayName: path=$filePath, newName=$newDisplayName")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "updateDisplayName: failed", e)
+                false
+            }
+        }
     }
 
     /**

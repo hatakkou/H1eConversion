@@ -2,6 +2,7 @@ package com.example.h1econversion.ui.screen
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +18,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckBox
@@ -40,15 +44,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -130,6 +143,7 @@ fun MultiFileGainScreen(
                         onSetBatchGain = viewModel::setBatchGain,
                         onTogglePlayPause = viewModel::togglePlayPause,
                         onSeek = viewModel::seekFile,
+                        onUpdateDisplayName = viewModel::updateDisplayName,
                         onNavigateToConversion = {
                             val selected = viewModel.getSelectedFilesWithGain()
                             if (selected.isNotEmpty()) {
@@ -170,10 +184,16 @@ private fun MultiFileContent(
     onSetBatchGain: (Float) -> Unit,
     onTogglePlayPause: (Int) -> Unit,
     onSeek: (Int, Long) -> Unit,
+    onUpdateDisplayName: (Int, String) -> Unit,
     onNavigateToConversion: () -> Unit,
 ) {
     val selectedCount = state.files.count { it.isSelected }
     val allSelected = state.files.all { it.isSelected }
+
+    // インライン編集の状態（-1 = 編集中なし）
+    var editingIndex by remember { mutableStateOf(-1) }
+    var editText by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
 
     Column(modifier = Modifier.fillMaxSize()) {
         // ---- 一括ゲイン設定カード ----
@@ -277,10 +297,37 @@ private fun MultiFileContent(
             ) { index, item ->
                 FileGainRow(
                     item = item,
+                    isEditing = editingIndex == index,
+                    editText = if (editingIndex == index) editText else "",
                     onToggleSelection = { onToggleFileSelection(index) },
                     onSetGain = { gain -> onSetFileGain(index, gain) },
                     onTogglePlayPause = { onTogglePlayPause(index) },
                     onSeek = { positionMs -> onSeek(index, positionMs) },
+                    onEditStart = {
+                        // 別の行を編集中の場合は、現在の編集を先にコミットしてから切り替え
+                        if (editingIndex != -1 && editingIndex != index) {
+                            val currentText = editText.trim()
+                            if (currentText.isNotEmpty()) {
+                                onUpdateDisplayName(editingIndex, currentText)
+                            }
+                            focusManager.clearFocus()
+                        }
+                        editingIndex = index
+                        editText = item.fileName
+                    },
+                    onEditTextChange = { editText = it },
+                    onEditCommit = {
+                        // フォーカス喪失時に別の行のテキストが適用されるのを防ぐ
+                        if (editingIndex == index) {
+                            val trimmed = editText.trim()
+                            if (trimmed.isNotEmpty()) {
+                                onUpdateDisplayName(index, trimmed)
+                            }
+                            editingIndex = -1
+                            editText = ""
+                            focusManager.clearFocus()
+                        }
+                    },
                 )
                 Spacer(modifier = Modifier.height(4.dp))
             }
@@ -307,7 +354,7 @@ private fun MultiFileContent(
  * 1ファイル分の行コンポーネント。
  *
  * レイアウト:
- *   [☑] [ファイル名] [再生時間]
+ *   [☑] [ファイル名（タップでインライン編集）] [再生時間]
  *   [Vol] [ゲインスライダー] [%]
  *   [▶] [現在位置 / 全体]  ← 再生ボタン＋時間表示
  *   [～～～～～ 波形ミニキャンバス（タップでシーク）～～～～～]
@@ -315,11 +362,18 @@ private fun MultiFileContent(
 @Composable
 private fun FileGainRow(
     item: FileGainItem,
+    isEditing: Boolean,
+    editText: String,
     onToggleSelection: () -> Unit,
     onSetGain: (Float) -> Unit,
     onTogglePlayPause: () -> Unit,
     onSeek: (Long) -> Unit,
+    onEditStart: () -> Unit,
+    onEditTextChange: (String) -> Unit,
+    onEditCommit: () -> Unit,
 ) {
+    val focusRequester = remember { FocusRequester() }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -350,14 +404,54 @@ private fun FileGainRow(
                     )
                 }
                 Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = item.fileName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+
+                // ファイル名：編集中はテキストフィールド、通常はテキスト表示
+                if (isEditing) {
+                    // 一度でもフォーカスを取得したかを追跡（初回描画時の !isFocused で即コミットされるのを防ぐ）
+                    val hasBeenFocused = remember { mutableStateOf(false) }
+
+                    BasicTextField(
+                        value = editText,
+                        onValueChange = onEditTextChange,
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused) {
+                                    hasBeenFocused.value = true
+                                } else if (hasBeenFocused.value) {
+                                    onEditCommit()
+                                }
+                            },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = { onEditCommit() },
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    )
+
+                    // 編集開始時に自動フォーカス
+                    LaunchedEffect(Unit) {
+                        focusRequester.requestFocus()
+                    }
+                } else {
+                    Text(
+                        text = item.fileName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onEditStart() },
+                    )
+                }
+
                 Spacer(modifier = Modifier.width(8.dp))
                 if (item.durationMs > 0) {
                     Text(

@@ -439,6 +439,32 @@ class MultiFileViewModel(application: Application) : AndroidViewModel(applicatio
     fun getSelectedCount(): Int = fileSelections.count { it }
 
     /**
+     * 指定インデックスのファイル表示名を変更します。
+     * WAVファイル本体は変更せず、.metaファイルの表示名のみを更新します。
+     *
+     * @param fileIndex 対象ファイルのインデックス
+     * @param newName 新しい表示名（空文字の場合は何もしない）
+     */
+    fun updateDisplayName(fileIndex: Int, newName: String) {
+        if (fileIndex !in filePaths.indices) return
+        // 外側の空白除去に加え、.meta ファイルの単一行フォーマットを守るため改行文字を除去
+        val trimmed = newName.trim().replace(Regex("[\r\n]"), "")
+        if (trimmed.isEmpty()) return
+
+        val path = filePaths[fileIndex]
+        viewModelScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                LocalFileRepository.updateDisplayName(path, trimmed)
+            }
+            if (success) {
+                // UI状態を更新（fileNameのみ）
+                updateFileItem(fileIndex) { it.copy(fileName = trimmed) }
+                Log.d(TAG, "updateDisplayName: fileIndex=$fileIndex, newName=$trimmed")
+            }
+        }
+    }
+
+    /**
      * 指定インデックスのファイル情報を更新します。
      */
     private fun updateFileItem(index: Int, transform: (FileGainItem) -> FileGainItem) {
