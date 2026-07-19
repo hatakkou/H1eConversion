@@ -144,6 +144,8 @@ class MainActivity : ComponentActivity() {
                         isManualDeviceSelect = true
                         filePickerLauncher.launch(arrayOf("audio/*"))
                     },
+                    importState = startViewModel.importState,
+                    onClearError = { startViewModel.clearError() },
                 )
             }
         }

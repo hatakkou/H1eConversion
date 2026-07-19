@@ -460,10 +460,11 @@ class MultiFileViewModel(application: Application) : AndroidViewModel(applicatio
                 // UI状態を更新（fileNameのみ）
                 updateFileItem(fileIndex) { it.copy(fileName = trimmed) }
                 Log.d(TAG, "updateDisplayName: fileIndex=$fileIndex, newName=$trimmed")
+            } else {
+                Log.w(TAG, "updateDisplayName: persist failed, fileIndex=$fileIndex, newName=$trimmed")
             }
         }
     }
-
     /**
      * 指定インデックスのファイル情報を更新します。
      */

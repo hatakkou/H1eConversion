@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.h1econversion.BuildConfig
 import com.example.h1econversion.audio.LocalFileRepository
 import com.example.h1econversion.model.FileSource
 import com.example.h1econversion.model.ImportUiState
@@ -50,55 +51,86 @@ class StartViewModel(application: Application) : AndroidViewModel(application) {
      * Called when the user picks a file from the system file picker.
      */
     fun onFilePicked(uri: Uri, fileName: String) {
-        Log.d(TAG, "onFilePicked: start, uri=$uri, fileName=$fileName")
+        if (BuildConfig.DEBUG) Log.d(TAG, "onFilePicked: start, uri=$uri, fileName=$fileName")
         viewModelScope.launch {
-            Log.d(TAG, "onFilePicked: coroutine launched")
-            _importState.value = ImportUiState.Copying(fileName)
-            Log.d(TAG, "onFilePicked: state set to Copying, calling copyUriToLocal...")
+            if (BuildConfig.DEBUG) Log.d(TAG, "onFilePicked: coroutine launched")
+            _importState.value = ImportUiState.Copying(
+                currentIndex = 1,
+                totalCount = 1,
+                currentFileName = fileName,
+            )
+            if (BuildConfig.DEBUG) Log.d(TAG, "onFilePicked: state set to Copying, calling copyUriToLocal...")
             val result = localRepo.copyUriToLocal(uri, fileName, FileSource.LOCAL_IMPORT)
-            Log.d(TAG, "onFilePicked: copyUriToLocal returned, isSuccess=${result.isSuccess}, isFailure=${result.isFailure}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "onFilePicked: copyUriToLocal returned, isSuccess=${result.isSuccess}, isFailure=${result.isFailure}")
             result.fold(
                 onSuccess = { selectedFile ->
-                    Log.d(TAG, "onFilePicked: SUCCESS, selectedFile=$selectedFile")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "onFilePicked: SUCCESS, selectedFile=$selectedFile")
                     _importState.value = ImportUiState.Idle
                     val event = StartNavigationEvent.NavigateToFileInfo(selectedFile.localPath)
-                    Log.d(TAG, "onFilePicked: sending navigation event: $event")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "onFilePicked: sending navigation event: $event")
                     _navigationEvent.send(event)
-                    Log.d(TAG, "onFilePicked: navigation event sent")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "onFilePicked: navigation event sent")
                 },
                 onFailure = { error ->
-                    Log.e(TAG, "onFilePicked: FAILURE, error=${error.message}", error)
+                    if (BuildConfig.DEBUG) Log.e(TAG, "onFilePicked: FAILURE, error=${error.message}", error)
                     _importState.value = ImportUiState.Error(
                         error.message ?: "ファイルの読み込みに失敗しました"
                     )
                 },
             )
         }
-        Log.d(TAG, "onFilePicked: viewModelScope.launch returned (async)")
+        if (BuildConfig.DEBUG) Log.d(TAG, "onFilePicked: viewModelScope.launch returned (async)")
     }
 
     /**
      * 複数ファイルがピッカーから選択された場合の一括処理。
-     * 全ファイルを並列コピーし、完了後に MultiFileGain 画面へ遷移します。
+     * 全ファイルを並列コピーし、各ファイルの完了ごとに進捗を UI へ通知します。
+     * 完了後に MultiFileGain 画面へ遷移します。
      *
      * @param files URIとファイル名のペアのリスト
      */
     fun onMultipleFilesPicked(files: List<Pair<Uri, String>>) {
-        Log.d(TAG, "onMultipleFilesPicked: start, count=${files.size}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "onMultipleFilesPicked: start, count=${files.size}")
         if (files.isEmpty()) return
 
         viewModelScope.launch {
-            _importState.value = ImportUiState.Copying("${files.size}ファイルをコピー中…")
+            val totalCount = files.size
+            _importState.value = ImportUiState.Copying(
+                currentIndex = 0,
+                totalCount = totalCount,
+                currentFileName = files.first().second,
+            )
 
             // 並列コピー（IO スレッド、同時実行数制限付き）
+            // async ブロックは withContext(Dispatchers.IO) 内で起動し、IO スレッドで実行
             val concurrencyLimit = 4
             val semaphore = kotlinx.coroutines.sync.Semaphore(concurrencyLimit)
+
+            // 完了カウント用の同期カウンタ（IO スレッド上の複数 async から更新される）
+            var completedCount = 0
+
             val results = withContext(Dispatchers.IO) {
                 files.map { (uri, fileName) ->
                     async {
                         semaphore.withPermit {
-                            Log.d(TAG, "onMultipleFilesPicked: copying $fileName")
-                            localRepo.copyUriToLocal(uri, fileName, FileSource.LOCAL_IMPORT)
+                            if (BuildConfig.DEBUG) Log.d(TAG, "onMultipleFilesPicked: copying $fileName")
+                            val result = localRepo.copyUriToLocal(uri, fileName, FileSource.LOCAL_IMPORT)
+                            // 進捗カウンタを更新し、UI 状態を Main スレッドで更新
+                            val currentCount = synchronized(this@StartViewModel) {
+                                ++completedCount
+                            }
+                            if (BuildConfig.DEBUG) Log.d(TAG, "onMultipleFilesPicked: progress $currentCount/$totalCount ($fileName)")
+                            if (currentCount < totalCount) {
+                                // StateFlow 更新のため Main スレッドに切り替え
+                                withContext(Dispatchers.Main) {
+                                    _importState.value = ImportUiState.Copying(
+                                        currentIndex = currentCount,
+                                        totalCount = totalCount,
+                                        currentFileName = fileName,
+                                    )
+                                }
+                            }
+                            result
                         }
                     }
                 }.awaitAll()
@@ -111,11 +143,11 @@ class StartViewModel(application: Application) : AndroidViewModel(application) {
             results.forEach { result ->
                 result.fold(
                     onSuccess = { selectedFile ->
-                        Log.d(TAG, "onMultipleFilesPicked: success - ${selectedFile.localPath}")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "onMultipleFilesPicked: success - ${selectedFile.localPath}")
                         successPaths.add(selectedFile.localPath)
                     },
                     onFailure = { error ->
-                        Log.e(TAG, "onMultipleFilesPicked: failure", error)
+                        if (BuildConfig.DEBUG) Log.e(TAG, "onMultipleFilesPicked: failure", error)
                         errors.add(error.message ?: "不明なエラー")
                     },
                 )
@@ -125,16 +157,13 @@ class StartViewModel(application: Application) : AndroidViewModel(application) {
 
             if (successPaths.isNotEmpty() && errors.isEmpty()) {
                 // 全ファイル成功 → そのまま遷移
-                Log.d(TAG, "onMultipleFilesPicked: navigating with ${successPaths.size} files")
+                if (BuildConfig.DEBUG) Log.d(TAG, "onMultipleFilesPicked: navigating with ${successPaths.size} files")
                 _navigationEvent.send(
                     StartNavigationEvent.NavigateToMultiFileGain(successPaths)
                 )
             } else if (successPaths.isNotEmpty() && errors.isNotEmpty()) {
                 // 部分失敗 → 成功ファイルで遷移し、失敗情報を通知
                 Log.w(TAG, "onMultipleFilesPicked: partial failure, ${successPaths.size} success, ${errors.size} failed")
-                _importState.value = ImportUiState.Warning(
-                    "${successPaths.size}ファイル成功 / ${errors.size}ファイル失敗"
-                )
                 _navigationEvent.send(
                     StartNavigationEvent.NavigateToMultiFileGain(
                         localPaths = successPaths,

@@ -17,7 +17,18 @@ sealed interface DeviceFilesUiState {
 
 sealed interface ImportUiState {
     data object Idle : ImportUiState
-    data class Copying(val fileName: String) : ImportUiState
+    /**
+     * ファイルコピー中の状態。
+     *
+     * @param currentIndex 現在処理中のファイル番号（1-based）
+     * @param totalCount 全ファイル数
+     * @param currentFileName 現在コピー中のファイル名
+     */
+    data class Copying(
+        val currentIndex: Int,
+        val totalCount: Int,
+        val currentFileName: String,
+    ) : ImportUiState
     data class Success(val selectedFile: SelectedFile) : ImportUiState
     data class Warning(val message: String) : ImportUiState
     data class Error(val message: String) : ImportUiState

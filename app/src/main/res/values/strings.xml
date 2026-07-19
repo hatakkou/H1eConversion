@@ -7,6 +7,8 @@
     <string name="connect_device_desc">Zoom H1 essential をUSB接続して\n録音データを読み込む</string>
     <string name="import_file_title">ファイルをインポート</string>
     <string name="import_file_desc">端末内の音声ファイルを選択して読み込む</string>
+    <string name="importing_files">ファイルをコピー中… (%1$d/%2$d)</string>
+    <string name="importing_file_single">ファイルをコピー中…</string>
 
     <!-- Device Files Screen -->
     <string name="device_files_title">デバイスのファイル</string>

@@ -8,6 +8,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.example.h1econversion.model.ImportUiState
 import com.example.h1econversion.ui.screen.BatchConversionScreen
 import com.example.h1econversion.ui.screen.ConversionScreen
 import com.example.h1econversion.ui.screen.DeviceFilesScreen
@@ -15,6 +16,7 @@ import com.example.h1econversion.ui.screen.FileInfoScreen
 import com.example.h1econversion.ui.screen.MultiFileGainScreen
 import com.example.h1econversion.ui.screen.StartScreen
 import com.example.h1econversion.ui.screen.WaveformScreen
+import kotlinx.coroutines.flow.StateFlow
 
 object Routes {
     const val START = "start"
@@ -66,6 +68,8 @@ fun AppNavGraph(
     navController: NavHostController,
     onLaunchFilePicker: () -> Unit,
     onLaunchManualPicker: () -> Unit = {},
+    importState: StateFlow<ImportUiState>? = null,
+    onClearError: () -> Unit = {},
 ) {
     NavHost(
         navController = navController,
@@ -79,6 +83,8 @@ fun AppNavGraph(
                 onImportFile = {
                     onLaunchFilePicker()
                 },
+                importState = importState,
+                onClearError = onClearError,
             )
         }
 
