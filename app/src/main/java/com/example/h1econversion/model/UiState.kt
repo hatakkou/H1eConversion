@@ -42,7 +42,7 @@ sealed interface WaveformUiState {
 }
 
 enum class PlaybackState {
-    Stopped, Playing, Paused, Finished
+    Stopped, Starting, Playing, Paused, Finished
 }
 
 /**

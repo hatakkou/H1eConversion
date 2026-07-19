@@ -136,6 +136,7 @@ class WaveformViewModel(application: Application) : AndroidViewModel(application
 
                 val playbackState = when (state) {
                     is PlayerState.Idle -> PlaybackState.Stopped
+                    is PlayerState.Starting -> PlaybackState.Starting
                     is PlayerState.Playing -> PlaybackState.Playing
                     is PlayerState.Paused -> PlaybackState.Paused
                     is PlayerState.Finished -> PlaybackState.Finished
@@ -192,6 +193,7 @@ class WaveformViewModel(application: Application) : AndroidViewModel(application
             is WaveformUiState.Ready -> {
                 val state = (_uiState.value as WaveformUiState.Ready).playerState
                 when (state) {
+                    PlaybackState.Starting -> { /* 再生初期化中は何もしない */ }
                     PlaybackState.Playing -> pause()
                     PlaybackState.Paused, PlaybackState.Finished -> play()
                     PlaybackState.Stopped -> play()
