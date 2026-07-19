@@ -243,13 +243,13 @@ class LocalFileRepository(private val context: Context) {
     }
 
     /**
-     * 保持期間を超えた古い録音ファイルを一括削除します。
-     * .meta ファイルは WAV 削除時に同時削除されるため個別処理しません。
+     * 保持期間を超えた古いファイルを一括削除します。
+     * WAV 本体に加え、対応する .meta ファイルおよび孤立した .meta ファイルも処理します。
      * .tmp ファイルはカットオフ時刻より古い（孤立した）もののみ削除し、
      * 最近のものは進行中のコピーが存在する可能性があるためスキップします。
      *
      * @param maxAgeMs 許容する最大経過時間（ミリ秒）。この時間より前に最終更新されたファイルを削除します。
-     * @return 削除したファイルの数
+     * @return 削除したファイルの数（WAV本体、.meta、孤立.meta、.tmp の合計）
      */
     fun cleanupOldRecordings(maxAgeMs: Long = DEFAULT_MAX_AGE_MS): Int {
         val cutoffTime = System.currentTimeMillis() - maxAgeMs
@@ -282,13 +282,15 @@ class LocalFileRepository(private val context: Context) {
                 if (file.delete()) {
                     deletedCount++
                     if (metaFile.exists()) {
-                        metaFile.delete()
+                        if (metaFile.delete()) {
+                            deletedCount++
+                        }
                     }
                 }
             }
         }
         if (deletedCount > 0) {
-            Log.i(TAG, "cleanupOldRecordings: deleted $deletedCount old recording(s)")
+            Log.i(TAG, "cleanupOldRecordings: deleted $deletedCount old file(s)")
         }
         return deletedCount
     }

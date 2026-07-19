@@ -224,56 +224,74 @@ class AudioPlayer {
     private suspend fun startPlayback(filePath: String, wavInfo: WavInfo) = withContext(Dispatchers.IO) {
         _wavInfo = wavInfo
 
-        val (encoding, channelOut) = validateAndGetEncoding(wavInfo)
-        val bits = wavInfo.bitsPerSample.toInt()
-        val channels = wavInfo.numChannels.toInt()
-
-        val minBufSize = AudioTrack.getMinBufferSize(
-            wavInfo.sampleRate, channelOut, encoding,
-        )
-        val bufferSize = maxOf(minBufSize, channels * CHUNK_FRAMES * (bits / 8))
-
-        val track = AudioTrack(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build(),
-            AudioFormat.Builder()
-                .setSampleRate(wavInfo.sampleRate)
-                .setChannelMask(channelOut)
-                .setEncoding(encoding)
-                .build(),
-            bufferSize,
-            AudioTrack.MODE_STREAM,
-            AudioManager.AUDIO_SESSION_ID_GENERATE,
-        )
-        audioTrack = track
-
-        val raf = RandomAccessFile(filePath, "r")
-        currentFile = raf
-
-        val bytesPerFrame = channels * (bits / 8)
-
-        // _currentFrame を参照して初期シーク位置を決定する。
-        // play() の Mutex 内で startPositionMs に基づき _currentFrame が設定済みのため、
-        // startPlayback() 起動前に seekTo() が介入しても正しい位置から再生開始される。
-        val startByteOffset = wavInfo.dataOffset + _currentFrame.value * bytesPerFrame
-        raf.seek(startByteOffset)
-
-        val rawBuf = ByteArray(CHUNK_FRAMES * bytesPerFrame)
-        val floatBuf = if (encoding == AudioFormat.ENCODING_PCM_FLOAT) {
-            FloatArray(CHUNK_FRAMES * channels)
-        } else {
-            null
-        }
-
-        track.play()
-        _state.value = PlayerState.Playing
-
-        // dataSize ベースの残量管理（開始位置を考慮）
-        var remainingBytes: Long = wavInfo.dataSize - (startByteOffset - wavInfo.dataOffset)
+        var track: AudioTrack? = null
+        var raf: RandomAccessFile? = null
 
         try {
+            val (encoding, channelOut) = validateAndGetEncoding(wavInfo)
+            val bits = wavInfo.bitsPerSample.toInt()
+            val channels = wavInfo.numChannels.toInt()
+            val bytesPerFrame = channels * (bits / 8)
+
+            val minBufSize = AudioTrack.getMinBufferSize(
+                wavInfo.sampleRate, channelOut, encoding,
+            )
+            val bufferSize = maxOf(minBufSize, channels * CHUNK_FRAMES * (bits / 8))
+
+            track = AudioTrack(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build(),
+                AudioFormat.Builder()
+                    .setSampleRate(wavInfo.sampleRate)
+                    .setChannelMask(channelOut)
+                    .setEncoding(encoding)
+                    .build(),
+                bufferSize,
+                AudioTrack.MODE_STREAM,
+                AudioManager.AUDIO_SESSION_ID_GENERATE,
+            )
+            audioTrack = track
+
+            raf = RandomAccessFile(filePath, "r")
+            currentFile = raf
+
+            // 初期シーク（_currentFrame は play() の Mutex 内で設定済み）
+            val startByteOffset = wavInfo.dataOffset + _currentFrame.value * bytesPerFrame
+            raf.seek(startByteOffset)
+
+            track.play()
+
+            // === Mutex 内で最終ハンドオフ ===
+            // seekTo() による遅延シーク要求を反映し、Playing への遷移をアトミックに実行する。
+            // stop()/load() が介入した場合は再生を中止する。
+            var remainingBytes: Long
+            mutex.withLock {
+                if (_state.value is PlayerState.Starting && isActive) {
+                    // Starting 中に seekTo() が _currentFrame を更新した可能性があるため再読取し、
+                    // 必要であればファイル位置を再シークする
+                    val latestFrame = _currentFrame.value
+                    val latestByteOffset = wavInfo.dataOffset + latestFrame * bytesPerFrame
+                    if (latestByteOffset != raf.filePointer) {
+                        raf.seek(latestByteOffset)
+                    }
+                    _state.value = PlayerState.Playing
+                    remainingBytes = wavInfo.dataSize - (raf.filePointer - wavInfo.dataOffset)
+                } else {
+                    // stop()/load() が介入した。finally ブロックでリソース解放される
+                    return@withContext
+                }
+            }
+
+            val rawBuf = ByteArray(CHUNK_FRAMES * bytesPerFrame)
+            val floatBuf = if (encoding == AudioFormat.ENCODING_PCM_FLOAT) {
+                FloatArray(CHUNK_FRAMES * channels)
+            } else {
+                null
+            }
+
+            // === 再生ループ ===
             var bytesRead: Int
             while (isActive && _state.value is PlayerState.Playing && remainingBytes > 0) {
                 val bytesToRead = minOf(rawBuf.size.toLong(), remainingBytes).toInt()
@@ -328,6 +346,18 @@ class AudioPlayer {
         } finally {
             if (_state.value is PlayerState.Playing) {
                 _state.value = PlayerState.Finished
+            }
+            // 初期化失敗時は Starting から Idle に戻し、部分的に作成されたリソースを解放する
+            if (_state.value is PlayerState.Starting) {
+                _state.value = PlayerState.Idle
+                track?.let {
+                    try { it.pause() } catch (_: Exception) {}
+                    try { it.flush() } catch (_: Exception) {}
+                    try { it.release() } catch (_: Exception) {}
+                }
+                if (audioTrack === track) audioTrack = null
+                try { raf?.close() } catch (_: Exception) {}
+                if (currentFile === raf) currentFile = null
             }
         }
     }
