@@ -347,9 +347,12 @@ class AudioPlayer {
             if (_state.value is PlayerState.Playing) {
                 _state.value = PlayerState.Finished
             }
-            // 初期化失敗時は Starting から Idle に戻し、部分的に作成されたリソースを解放する
+            // 初期化失敗時は Starting から Idle に戻し、部分的に作成されたリソースを解放する。
+            // Idle への遷移は currentFile のクリア後に行い、seekTo() が
+            // クローズ中またはクローズ済みのファイルにアクセスするのを防ぐ。
+            // なお、このブロックでは mutex を取得しない（キャンセル呼び出し元が
+            // mutex を保持したままこのコルーチンを join する可能性があるため）。
             if (_state.value is PlayerState.Starting) {
-                _state.value = PlayerState.Idle
                 track?.let {
                     try { it.pause() } catch (_: Exception) {}
                     try { it.flush() } catch (_: Exception) {}
@@ -358,6 +361,7 @@ class AudioPlayer {
                 if (audioTrack === track) audioTrack = null
                 try { raf?.close() } catch (_: Exception) {}
                 if (currentFile === raf) currentFile = null
+                _state.value = PlayerState.Idle
             }
         }
     }
