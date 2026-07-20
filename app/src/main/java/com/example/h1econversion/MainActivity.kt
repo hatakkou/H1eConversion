@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
@@ -36,7 +37,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (BuildConfig.DEBUG) Log.d(TAG, "onCreate: start")
 
+        // エッジtoエッジ表示。システムバー背景は Compose テーマの白背景が透過して表示される
+        // enableEdgeToEdge() は API 35+ の3ボタンナビゲーションスクリムも自動処理する
         enableEdgeToEdge()
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
         setContent {
             H1eConversionTheme {
                 val navController = rememberNavController()

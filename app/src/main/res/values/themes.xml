@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "全部しろ" シンプル白基調テーマ（Compose ロード前に表示されるXMLテーマ） -->
+<resources>
+    <style name="Theme.H1eConversion.White" parent="Theme.AppCompat.Light">
+        <!-- アクセントカラーを排除し、すべて白/グレーで統一 -->
+        <item name="colorPrimary">#FF333333</item>
+        <item name="colorPrimaryDark">#FF222222</item>
+        <item name="colorAccent">#FF555555</item>
+        <!-- ウィンドウ背景を白に -->
+        <item name="android:windowBackground">@android:color/white</item>
+        <!-- ステータスバー・ナビゲーションバーを白に -->
+        <item name="android:statusBarColor">@android:color/white</item>
+        <item name="android:navigationBarColor">@android:color/white</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>
