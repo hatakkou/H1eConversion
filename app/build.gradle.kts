@@ -77,4 +77,7 @@ dependencies {
 
     // DocumentFile for SAF operations
     implementation("androidx.documentfile:documentfile:1.0.1")
+
+    // DataStore for settings persistence
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
 }

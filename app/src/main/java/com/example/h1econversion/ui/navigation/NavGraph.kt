@@ -14,12 +14,14 @@ import com.example.h1econversion.ui.screen.ConversionScreen
 import com.example.h1econversion.ui.screen.DeviceFilesScreen
 import com.example.h1econversion.ui.screen.FileInfoScreen
 import com.example.h1econversion.ui.screen.MultiFileGainScreen
+import com.example.h1econversion.ui.screen.SettingsScreen
 import com.example.h1econversion.ui.screen.StartScreen
 import com.example.h1econversion.ui.screen.WaveformScreen
 import kotlinx.coroutines.flow.StateFlow
 
 object Routes {
     const val START = "start"
+    const val SETTINGS = "settings"
     const val DEVICE_FILES = "device_files"
     const val FILE_INFO = "file_info/{localPath}"
     const val WAVEFORM = "waveform/{localPath}"
@@ -83,8 +85,20 @@ fun AppNavGraph(
                 onImportFile = {
                     onLaunchFilePicker()
                 },
+                onNavigateToSettings = {
+                    navController.navigate(Routes.SETTINGS)
+                },
                 importState = importState,
                 onClearError = onClearError,
+            )
+        }
+
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                viewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
             )
         }
 

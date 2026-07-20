@@ -6,12 +6,15 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.h1econversion.audio.LocalFileRepository
 import com.example.h1econversion.audio.MediaCodecConverter
+import com.example.h1econversion.data.SettingsStore
+import com.example.h1econversion.model.CodecType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -101,6 +104,9 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
     private val logBuffer = mutableListOf<String>()
     private val logLock = Any()
 
+    /** 設定ストア */
+    private val settingsStore = SettingsStore.getInstance(getApplication())
+
     /**
      * 一括変換の準備をします。
      */
@@ -144,6 +150,12 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
 
         viewModelScope.launch {
             try {
+                // 設定を読み取り
+                val settings = settingsStore.settingsFlow.first()
+                val extension = settings.container.extension
+                val bitrate = settings.bitrate.bps
+                val codecType = settings.codec
+
                 val app = getApplication<Application>()
                 val cacheDir = app.cacheDir ?: run {
                     _uiState.value = BatchConversionUiState.Error("キャッシュディレクトリにアクセスできません")
@@ -166,7 +178,7 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
 
                                 // ユニークな出力ファイル名（UUID で競合を回避）
                                 val uniqueSuffix = java.util.UUID.randomUUID().toString().take(8)
-                                val outputName = "${baseName}_gain${gainPercent}_${uniqueSuffix}.m4a"
+                                val outputName = "${baseName}_gain${gainPercent}_${uniqueSuffix}.$extension"
                                 val outputPath = File(outputDir, outputName).absolutePath
 
                                 val logMsg = "変換中: $displayName (gain=${gainPercent}%)"
@@ -182,6 +194,9 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
                                 val result = semaphore.withPermit {
                                     MediaCodecConverter.convert(
                                         inputPath, outputPath, gain,
+                                        bitrate = bitrate,
+                                        codecType = codecType,
+                                        containerExtension = extension,
                                     ) { logMessage ->
                                         synchronized(logLock) {
                                             logBuffer.add("  $logMessage")

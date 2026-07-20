@@ -112,4 +112,25 @@
     <string name="multi_gain_selection_count">%1$d / %2$d ファイル選択中</string>
     <string name="multi_gain_deselect_one">選択解除</string>
     <string name="multi_gain_select_one">選択</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">設定</string>
+    <string name="settings_conversion_section">変換設定</string>
+    <string name="settings_codec_label">出力コーデック</string>
+    <string name="settings_bitrate_label">ビットレート</string>
+    <string name="settings_extension_label">出力拡張子</string>
+    <string name="settings_storage_section">ストレージ</string>
+    <string name="settings_imported_files_label">インポート済みファイル</string>
+    <string name="settings_cache_label">変換キャッシュ</string>
+    <string name="settings_storage_status_exists">あり</string>
+    <string name="settings_storage_status_empty">なし</string>
+    <string name="settings_delete_all_button">すべてのユーザーデータを削除</string>
+    <string name="settings_no_data_to_delete">削除可能なデータはありません</string>
+    <string name="settings_delete_dialog_title">ユーザーデータの削除</string>
+    <string name="settings_delete_dialog_message">インポート済みの録音ファイルと変換キャッシュをすべて削除します。\n\nこの操作は取り消せません。\n変換が完了し保存済みのファイルは削除されません。\n\n続行しますか？</string>
+    <string name="settings_delete_confirm">削除する</string>
+    <string name="settings_delete_cancel">キャンセル</string>
+    <string name="settings_delete_result_empty">削除対象のデータがありませんでした</string>
+    <string name="settings_delete_result_format">インポート済みファイル %1$d件、変換キャッシュ %2$d件 を削除しました</string>
+    <string name="settings_delete_error">データ削除に失敗しました</string>
 </resources>

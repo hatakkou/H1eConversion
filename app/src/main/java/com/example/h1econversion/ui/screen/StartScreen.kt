@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -20,9 +21,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,10 +48,12 @@ import kotlinx.coroutines.flow.StateFlow
  * - Copying: ファイルコピー中の進捗表示
  * - Error/Warning: エラー・警告表示
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StartScreen(
     onConnectDevice: () -> Unit = {},
     onImportFile: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
     importState: StateFlow<ImportUiState>? = null,
     onClearError: () -> Unit = {},
 ) {
@@ -55,12 +61,28 @@ fun StartScreen(
         ImportUiState.Idle
     )).collectAsState()
 
-    // Crossfade + when で安全に状態に応じた表示を切り替え
-    // AnimatedVisibility + as キャストは状態遷移時に ClassCastException のリスクがあるため不使用
-    Crossfade(
-        targetState = state,
-        animationSpec = tween(durationMillis = 300),
-    ) { currentState ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.app_name)) },
+                actions = {
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "設定",
+                        )
+                    }
+                },
+            )
+        },
+    ) { paddingValues ->
+        // Crossfade + when で安全に状態に応じた表示を切り替え
+        // AnimatedVisibility + as キャストは状態遷移時に ClassCastException のリスクがあるため不使用
+        Crossfade(
+            targetState = state,
+            animationSpec = tween(durationMillis = 300),
+            modifier = Modifier.padding(paddingValues),
+        ) { currentState ->
         when (currentState) {
             is ImportUiState.Idle -> {
                 IdleContent(
@@ -98,6 +120,7 @@ fun StartScreen(
             }
         }
     }
+    } // Scaffold 終了
 }
 
 /**

@@ -7,10 +7,15 @@ import androidx.lifecycle.viewModelScope
 import com.example.h1econversion.audio.LocalFileRepository
 import com.example.h1econversion.audio.MediaCodecConverter
 import com.example.h1econversion.audio.MediaCodecConverter.Result
+import com.example.h1econversion.data.SettingsStore
+import com.example.h1econversion.model.CodecType
+import com.example.h1econversion.model.ContainerType
+import com.example.h1econversion.model.ConversionSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -70,6 +75,9 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
     /** 変換ログを保持（変換後に確認できるようフィールド化） */
     private val logBuffer = mutableListOf<String>()
 
+    /** 設定ストア */
+    private val settingsStore = SettingsStore.getInstance(getApplication())
+
     /**
      * 変換パラメータを設定し、Idle 状態を表示します。
      *
@@ -85,12 +93,35 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
         val gainPercent = (gain * 100f).toInt()
         // UUIDプレフィックスを除去した表示用ファイル名を取得
         val displayName = LocalFileRepository.getDisplayName(inputPath)
-        _uiState.value = ConversionUiState.Idle(
-            inputFileName = displayName,
-            inputFormat = inputFormat,
-            gainPercent = gainPercent,
-            outputFormat = "AAC / ${MediaCodecConverter.AAC_BITRATE / 1000}kbps / M4A",
-        )
+
+        // 設定を読み取って出力フォーマット表示文字列を構築
+        viewModelScope.launch {
+            val settings = settingsStore.settingsFlow.first()
+            val outputFormat = buildOutputFormatString(settings)
+            _uiState.value = ConversionUiState.Idle(
+                inputFileName = displayName,
+                inputFormat = inputFormat,
+                gainPercent = gainPercent,
+                outputFormat = outputFormat,
+            )
+        }
+    }
+
+    /**
+     * 設定から出力フォーマットの表示文字列を構築します。
+     */
+    private fun buildOutputFormatString(settings: ConversionSettings): String {
+        return when (settings.codec) {
+            CodecType.AAC -> {
+                val containerLabel = when (settings.container) {
+                    ContainerType.M4A -> "M4A"
+                    ContainerType.AAC_RAW -> "AAC (Raw)"
+                    else -> settings.container.extension.uppercase()
+                }
+                "AAC / ${settings.bitrate.bps / 1000}kbps / $containerLabel"
+            }
+            CodecType.PCM_WAV -> "PCM / WAV（無圧縮）"
+        }
     }
 
     /**
@@ -113,26 +144,41 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
         val baseName = displayName.substringBeforeLast(".")
         val gainPercent = (gain * 100f).toInt()
 
-        // 出力ファイル名: "元ファイル名_gainXXX.m4a"
-        val outputName = "${baseName}_gain${gainPercent}.m4a"
-        val outputPath = File(outputDir, outputName).absolutePath
-
-        Log.d(TAG, "Starting conversion: $inputPath -> $outputPath (gain=$gain)")
+        Log.d(TAG, "Starting conversion: $inputPath (gain=$gain)")
 
         // 初期ログメッセージ
         logBuffer.clear()
         logBuffer.add("変換を開始します...")
 
-        _uiState.value = ConversionUiState.Converting(
-            inputFileName = displayName,
-            gainPercent = gainPercent,
-            progressLogs = logBuffer.toList(),
-        )
-
         viewModelScope.launch {
             try {
+                // 設定を読み取り
+                val settings = settingsStore.settingsFlow.first()
+                val extension = settings.container.extension
+                val bitrate = settings.bitrate.bps
+                val codecType = settings.codec
+
+                // 出力ファイル名: "元ファイル名_gainXXX.{extension}"
+                val outputName = "${baseName}_gain${gainPercent}.$extension"
+                val outputPath = File(outputDir, outputName).absolutePath
+
+                Log.d(TAG, "Output: $outputPath (codec=$codecType, bitrate=$bitrate, ext=$extension)")
+
+                _uiState.value = ConversionUiState.Converting(
+                    inputFileName = displayName,
+                    gainPercent = gainPercent,
+                    progressLogs = logBuffer.toList(),
+                )
+
                 val result = withContext(Dispatchers.IO) {
-                    MediaCodecConverter.convert(inputPath, outputPath, gain) { logMessage ->
+                    MediaCodecConverter.convert(
+                        inputPath = inputPath,
+                        outputPath = outputPath,
+                        gain = gain,
+                        bitrate = bitrate,
+                        codecType = codecType,
+                        containerExtension = extension,
+                    ) { logMessage ->
                         // MutableStateFlowはスレッドセーフ。IOスレッドから直接更新
                         logBuffer.add(logMessage)
                         val s = _uiState.value
