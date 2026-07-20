@@ -31,6 +31,29 @@ data class BatchFileInfo(
 )
 
 /**
+ * 個別ファイルの変換状態。
+ */
+sealed interface FileStatus {
+    /** 変換待ち（セマフォ解放待ち） */
+    data object Pending : FileStatus
+    /** 変換実行中 */
+    data class Converting(val message: String) : FileStatus
+    /** 変換完了 */
+    data object Completed : FileStatus
+    /** 変換失敗 */
+    data class Failed(val reason: String) : FileStatus
+}
+
+/**
+ * ファイルごとの進捗情報。
+ */
+data class FileProgress(
+    val fileName: String,
+    val gainPercent: Int,
+    val status: FileStatus,
+)
+
+/**
  * 一括変換の UI 状態。
  */
 sealed interface BatchConversionUiState {
@@ -44,7 +67,8 @@ sealed interface BatchConversionUiState {
     data class Converting(
         val totalFiles: Int,
         val completedFiles: Int,
-        val logs: List<String>,
+        /** 全ファイルの進捗一覧（ファイル名・ゲイン・状態） */
+        val fileProgresses: List<FileProgress>,
     ) : BatchConversionUiState
 
     /** 変換完了 */
@@ -88,8 +112,11 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
 
     companion object {
         private const val TAG = "BatchConversionVM"
-        /** MediaCodecConverter.convert の最大同時実行数 */
-        private const val MAX_CONCURRENT_CONVERSIONS = 2
+        /** MediaCodecConverter.convert の最大同時実行数（CPUコア数の半分、最小2・最大4） */
+        private val MAX_CONCURRENT_CONVERSIONS: Int = run {
+            val cpuCores = Runtime.getRuntime().availableProcessors()
+            (cpuCores / 2).coerceIn(2, 4)
+        }
     }
 
     private val _uiState = MutableStateFlow<BatchConversionUiState>(
@@ -100,9 +127,9 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
     /** 変換対象のパスとゲインのリスト */
     private var pathGainPairs: List<Pair<String, Float>> = emptyList()
 
-    /** 変換ログバッファ（スレッドセーフ） */
-    private val logBuffer = mutableListOf<String>()
-    private val logLock = Any()
+    /** ファイルごとの進捗（スレッドセーフ） */
+    private val fileProgresses = mutableListOf<FileProgress>()
+    private val progressLock = Any()
 
     /** 設定ストア */
     private val settingsStore = SettingsStore.getInstance(getApplication())
@@ -120,7 +147,6 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
             )
         }
 
-        logBuffer.clear()
         _uiState.value = BatchConversionUiState.Idle(
             fileInfos = fileInfos,
             totalFiles = pairs.size,
@@ -129,6 +155,9 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
 
     /**
      * 一括変換を開始します（並列処理）。
+     *
+     * 各ファイルの進捗を [FileProgress] で個別に追跡し、
+     * UI にファイル名＋ステータス行として表示します。
      */
     fun startBatchConversion() {
         val pairs = pathGainPairs
@@ -137,15 +166,24 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
             return
         }
 
-        synchronized(logLock) {
-            logBuffer.clear()
-            logBuffer.add("一括変換を開始します（${pairs.size}ファイル）...")
+        // 全ファイルを Pending で初期化
+        synchronized(progressLock) {
+            fileProgresses.clear()
+            pairs.forEach { (path, gain) ->
+                fileProgresses.add(
+                    FileProgress(
+                        fileName = LocalFileRepository.getDisplayName(path),
+                        gainPercent = (gain * 100f).toInt(),
+                        status = FileStatus.Pending,
+                    )
+                )
+            }
         }
 
         _uiState.value = BatchConversionUiState.Converting(
             totalFiles = pairs.size,
             completedFiles = 0,
-            logs = synchronized(logLock) { logBuffer.toList() },
+            fileProgresses = synchronized(progressLock) { fileProgresses.toList() },
         )
 
         viewModelScope.launch {
@@ -163,72 +201,58 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
                 }
                 val outputDir = cacheDir.resolve("converted")
 
-                // 同時実行数制限用セマフォ（MediaCodecConverter は重いため制限）
+                // 同時実行数制限用セマフォ
                 val semaphore = Semaphore(MAX_CONCURRENT_CONVERSIONS)
 
                 // 並列変換（IO スレッド）
                 val results = withContext(Dispatchers.IO) {
-                    pairs.map { (inputPath, gain) ->
+                    pairs.mapIndexed { fileIndex, (inputPath, gain) ->
                         async {
-                            // 例外を個別にキャッチし、1ファイルの失敗が全体をキャンセルしないようにする
                             try {
                                 val displayName = LocalFileRepository.getDisplayName(inputPath)
                                 val baseName = displayName.substringBeforeLast(".")
                                 val gainPercent = (gain * 100f).toInt()
 
-                                // ユニークな出力ファイル名（UUID で競合を回避）
+                                // ユニークな出力ファイル名
                                 val uniqueSuffix = java.util.UUID.randomUUID().toString().take(8)
                                 val outputName = "${baseName}_gain${gainPercent}_${uniqueSuffix}.$extension"
                                 val outputPath = File(outputDir, outputName).absolutePath
-
-                                val logMsg = "変換中: $displayName (gain=${gainPercent}%)"
-                                synchronized(logLock) {
-                                    logBuffer.add(logMsg)
-                                }
-                                // UI 更新（ログ反映）
-                                updateConvertingState(pairs.size)
 
                                 Log.d(TAG, "Converting: $inputPath -> $outputPath (gain=$gain)")
 
                                 // セマフォで同時実行数を制限
                                 val result = semaphore.withPermit {
+                                    // 変換開始 → ステータスを Converting に更新
+                                    updateFileStatus(fileIndex, FileStatus.Converting("開始..."))
+                                    emitConvertingState()
+
                                     MediaCodecConverter.convert(
                                         inputPath, outputPath, gain,
                                         bitrate = bitrate,
                                         codecType = codecType,
                                         containerExtension = extension,
-                                    ) { logMessage ->
-                                        synchronized(logLock) {
-                                            logBuffer.add("  $logMessage")
-                                        }
+                                    ) { progressMsg ->
+                                        // 変換中の進捗メッセージをファイル個別に反映
+                                        updateFileStatus(fileIndex, FileStatus.Converting(progressMsg))
+                                        emitConvertingState()
                                     }
                                 }
 
                                 when (result) {
                                     is MediaCodecConverter.Result.Success -> {
-                                        synchronized(logLock) {
-                                            logBuffer.add("✓ 完了: $displayName")
-                                        }
-                                        updateConvertingState(pairs.size)
+                                        updateFileStatus(fileIndex, FileStatus.Completed)
+                                        emitConvertingState()
                                         Result.success(result.outputFile)
                                     }
                                     is MediaCodecConverter.Result.Error -> {
-                                        synchronized(logLock) {
-                                            logBuffer.add("✗ 失敗: $displayName - ${result.message}")
-                                        }
-                                        updateConvertingState(pairs.size)
+                                        updateFileStatus(fileIndex, FileStatus.Failed(result.message))
+                                        emitConvertingState()
                                         Result.failure<File>(RuntimeException(result.message))
                                     }
                                 }
                             } catch (e: Exception) {
-                                // 個別ファイルの例外をキャッチして Result.failure に変換
-                                val displayName = try {
-                                    LocalFileRepository.getDisplayName(inputPath)
-                                } catch (_: Exception) { inputPath }
-                                synchronized(logLock) {
-                                    logBuffer.add("✗ 例外: $displayName - ${e.message}")
-                                }
-                                updateConvertingState(pairs.size)
+                                updateFileStatus(fileIndex, FileStatus.Failed(e.message ?: "不明なエラー"))
+                                emitConvertingState()
                                 Result.failure<File>(e)
                             }
                         }
@@ -252,17 +276,12 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
                     )
                 }
 
-                synchronized(logLock) {
-                    logBuffer.add("")
-                    logBuffer.add("一括変換完了: 成功 $successCount / 失敗 $failureCount")
-                }
-
                 _uiState.value = BatchConversionUiState.Completed(
                     totalFiles = pairs.size,
                     successCount = successCount,
                     failureCount = failureCount,
                     successFiles = successFiles,
-                    logs = synchronized(logLock) { logBuffer.toList() },
+                    logs = buildResultLogs(pairs, successCount, failureCount),
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Batch conversion failed", e)
@@ -471,21 +490,51 @@ class BatchConversionViewModel(application: Application) : AndroidViewModel(appl
     }
 
     /**
-     * 変換中の UI 状態を更新します。
+     * 指定インデックスのファイル進捗状態を更新します（スレッドセーフ）。
      */
-    private fun updateConvertingState(totalFiles: Int) {
-        val current = _uiState.value
-        if (current is BatchConversionUiState.Converting) {
-            // 完了ファイル数はログから "✓ 完了:" / "✗ 失敗:" / "✗ 例外:" の数をカウント
-            val completed = synchronized(logLock) {
-                logBuffer.count { line ->
-                    line.startsWith("✓ 完了:") || line.startsWith("✗ 失敗:") || line.startsWith("✗ 例外:")
-                }
+    private fun updateFileStatus(index: Int, status: FileStatus) {
+        synchronized(progressLock) {
+            if (index in fileProgresses.indices) {
+                val old = fileProgresses[index]
+                fileProgresses[index] = old.copy(status = status)
             }
-            _uiState.value = current.copy(
-                completedFiles = completed.coerceAtMost(totalFiles),
-                logs = synchronized(logLock) { logBuffer.toList() },
-            )
         }
+    }
+
+    /**
+     * 現在の進捗を UI 状態として発行します。
+     */
+    private fun emitConvertingState() {
+        val progresses = synchronized(progressLock) { fileProgresses.toList() }
+        val completedCount = progresses.count {
+            it.status is FileStatus.Completed || it.status is FileStatus.Failed
+        }
+        _uiState.value = BatchConversionUiState.Converting(
+            totalFiles = progresses.size,
+            completedFiles = completedCount,
+            fileProgresses = progresses,
+        )
+    }
+
+    /**
+     * 完了ログ文字列を構築します。
+     */
+    private fun buildResultLogs(
+        pairs: List<Pair<String, Float>>,
+        successCount: Int,
+        failureCount: Int,
+    ): List<String> {
+        val logs = mutableListOf<String>()
+        val progresses = synchronized(progressLock) { fileProgresses.toList() }
+        progresses.forEach { fp ->
+            when (val s = fp.status) {
+                is FileStatus.Completed -> logs.add("✓ ${fp.fileName} (${fp.gainPercent}%)")
+                is FileStatus.Failed -> logs.add("✗ ${fp.fileName} — ${s.reason}")
+                else -> logs.add("? ${fp.fileName} — 不明な状態")
+            }
+        }
+        logs.add("")
+        logs.add("一括変換完了: 成功 $successCount / 失敗 $failureCount")
+        return logs
     }
 }

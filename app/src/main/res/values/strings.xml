@@ -98,6 +98,9 @@
     <string name="batch_idle_start_button">%1$dファイルの変換を開始</string>
     <string name="batch_completed_files_label">変換済みファイル:</string>
     <string name="batch_share_button">共有</string>
+    <string name="batch_conversion_file_progress_title">ファイル別進捗:</string>
+    <string name="batch_file_status_pending">待機中…</string>
+    <string name="batch_file_status_done">完了</string>
     <string name="batch_save_progress">Downloadsに保存中... (%1$d/%2$d)</string>
     <string name="batch_save_button_saving">保存中...</string>
     <string name="storage_permission_required">ストレージ権限が必要です</string>

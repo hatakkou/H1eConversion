@@ -64,6 +64,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.h1econversion.R
 import com.example.h1econversion.viewmodel.BatchConversionUiState
 import com.example.h1econversion.viewmodel.BatchConversionViewModel
+import com.example.h1econversion.viewmodel.FileProgress
+import com.example.h1econversion.viewmodel.FileStatus
 import com.example.h1econversion.viewmodel.SaveState
 import kotlinx.coroutines.launch
 
@@ -237,22 +239,15 @@ private fun BatchIdleContent(
 
 /**
  * 変換実行中の画面。
+ * 各ファイルの進捗を個別行で表示します。
  */
 @Composable
 private fun BatchConvertingContent(state: BatchConversionUiState.Converting) {
     val listState = rememberLazyListState()
 
-    // 新しいログが追加されたら自動スクロール
-    LaunchedEffect(state.logs.size) {
-        if (state.logs.isNotEmpty()) {
-            val layoutInfo = listState.layoutInfo
-            val lastVisibleItem = layoutInfo.visibleItemsInfo.lastOrNull()
-            val isAtBottom = lastVisibleItem != null &&
-                lastVisibleItem.index == layoutInfo.totalItemsCount - 1
-            if (isAtBottom) {
-                listState.animateScrollToItem(state.logs.size - 1)
-            }
-        }
+    // 新しいファイルが処理開始されたら先頭付近を表示
+    LaunchedEffect(state.fileProgresses) {
+        // 自動スクロールは不要（ユーザーが見たい行を選べるように）
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -292,38 +287,129 @@ private fun BatchConvertingContent(state: BatchConversionUiState.Converting) {
             )
         }
 
-        // ログ表示
+        // ファイル別進捗一覧
         Text(
-            text = stringResource(R.string.conversion_log_title),
+            text = stringResource(R.string.batch_conversion_file_progress_title),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 4.dp),
         )
-        Box(
+
+        LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .background(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(8.dp),
-                ),
+                .weight(1f),
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(8.dp),
-            ) {
-                itemsIndexed(state.logs) { _, log ->
+            itemsIndexed(
+                items = state.fileProgresses,
+                key = { index, _ -> index },
+            ) { _, progress ->
+                FileProgressRow(progress = progress)
+            }
+        }
+    }
+}
+
+/**
+ * ファイル1行分の進捗表示。
+ */
+@Composable
+private fun FileProgressRow(progress: FileProgress) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // ステータスアイコン
+        when (val s = progress.status) {
+            is FileStatus.Pending -> {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                )
+            }
+            is FileStatus.Converting -> {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                )
+            }
+            is FileStatus.Completed -> {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            is FileStatus.Failed -> {
+                Icon(
+                    imageVector = Icons.Default.Error,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // ファイル名 + ゲイン
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = progress.fileName,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = if (progress.status is FileStatus.Converting) FontWeight.Bold else FontWeight.Normal,
+            )
+            when (val s = progress.status) {
+                is FileStatus.Converting -> {
                     Text(
-                        text = log,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 1.dp),
+                        text = s.message,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                is FileStatus.Failed -> {
+                    Text(
+                        text = s.reason,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                is FileStatus.Pending -> {
+                    Text(
+                        text = stringResource(R.string.batch_file_status_pending),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    )
+                }
+                is FileStatus.Completed -> {
+                    Text(
+                        text = stringResource(R.string.batch_file_status_done),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
         }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // ゲイン%
+        Text(
+            text = "${progress.gainPercent}%",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
