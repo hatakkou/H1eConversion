@@ -228,7 +228,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 ?: emptyArray()
             val cacheSize = cacheFiles.sumOf { it.length() }
 
-            _uiState.value = SettingsUiState.Ready(
+            // 現在の UI 状態から showDeleteConfirmation / resultMessage を引き継ぐ
+            val current = _uiState.value
+            _uiState.value = (current as? SettingsUiState.Ready)?.copy(
+                settings = settings,
+                hasImportedFiles = filteredRecordings.isNotEmpty(),
+                hasConversionCache = cacheFiles.isNotEmpty(),
+                importedFilesSizeBytes = importedSize,
+                cacheSizeBytes = cacheSize,
+            ) ?: SettingsUiState.Ready(
                 settings = settings,
                 hasImportedFiles = filteredRecordings.isNotEmpty(),
                 hasConversionCache = cacheFiles.isNotEmpty(),

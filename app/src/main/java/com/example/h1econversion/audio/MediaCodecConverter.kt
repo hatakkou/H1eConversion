@@ -500,7 +500,7 @@ object MediaCodecConverter {
 
         // ADTS パラメータ事前計算
         val freqIndex = getAdtsFreqIndex(sampleRate)
-        val profile = 1 // AAC LC (MPEG-4)
+        val profile = 2 // AAC-LC audio object type（ADTS では profile-1 → 1）
         val chanConfig = channels
 
         // AAC エンコーダー設定
@@ -659,7 +659,7 @@ object MediaCodecConverter {
      *   B: MPEG version (0=MPEG-4)
      *   C: Layer (0)
      *   D: Protection absent (1=no CRC)
-     *   E: Profile (AAC LC = 1, but in ADTS it's profile-1 = 0)
+     *   E: Profile（呼び出し元が audio object type を渡す。ADTS では objectType-1 で格納。AAC-LC=2 → ADTS profile=1）
      *   F: Sampling frequency index
      *   G: Private bit (0)
      *   H: Channel configuration
@@ -676,7 +676,7 @@ object MediaCodecConverter {
         freqIndex: Int,
         chanConfig: Int,
     ): ByteArray {
-        // profile in ADTS is (AAC profile - 1), so AAC LC(1) → 0
+        // profile in ADTS is (audio object type - 1), so AAC-LC(2) → 1
         val adtsProfile = (profile - 1).coerceIn(0, 3)
 
         val header = ByteArray(7)
